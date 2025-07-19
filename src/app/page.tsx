@@ -29,6 +29,7 @@ export default function Home() {
   const [currentRound, setCurrentRound] = useState(0);
   const [newPlayerName, setNewPlayerName] = useState("");
   const [courts, setCourts] = useState(1);
+  const [randomnessLevel, setRandomnessLevel] = useState(0.5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<"players" | "rounds" | "stats">(
@@ -44,6 +45,7 @@ export default function Home() {
         if (saved) {
           const config = JSON.parse(saved);
           setCourts(config.courts || 1);
+          setRandomnessLevel(config.randomnessLevel || 0.5);
         }
 
         // Also fetch from server as backup
@@ -51,6 +53,7 @@ export default function Home() {
         if (response.ok) {
           const serverConfig = await response.json();
           setCourts(serverConfig.courts || 1);
+          setRandomnessLevel(serverConfig.randomnessLevel || 0.5);
         }
       } catch (error) {
         console.warn("Failed to load saved configuration:", error);
@@ -151,7 +154,7 @@ export default function Home() {
       const response = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courts }),
+        body: JSON.stringify({ courts, randomnessLevel }),
       });
 
       if (response.ok) {
@@ -182,6 +185,7 @@ export default function Home() {
         body: JSON.stringify({
           reset: true,
           courts,
+          randomnessLevel,
         }),
       });
 
@@ -269,6 +273,35 @@ export default function Home() {
           </div>
 
           <div className="stats-card">
+            <label className="block text-base sm:text-lg font-semibold mb-3 text-gray-700">
+              🎲 Randomness Level
+            </label>
+            <div className="flex items-center space-x-2 mb-2">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={randomnessLevel}
+                onChange={(e) => setRandomnessLevel(parseFloat(e.target.value))}
+                className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+              />
+              <span className="text-sm font-bold text-gray-700 min-w-[3rem]">
+                {Math.round(randomnessLevel * 100)}%
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-600">
+              {randomnessLevel === 0
+                ? "Deterministic (same result every time)"
+                : randomnessLevel < 0.3
+                ? "Low randomness (mostly fair)"
+                : randomnessLevel < 0.7
+                ? "Medium randomness (balanced)"
+                : "High randomness (more variety)"}
+            </p>
+          </div>
+
+          <div className="stats-card">
             <div className="text-base sm:text-lg font-semibold mb-3 text-gray-700">
               👥 Players
             </div>
@@ -279,20 +312,6 @@ export default function Home() {
               {players.length >= 4
                 ? "Ready to generate matches!"
                 : "Need at least 4 players"}
-            </p>
-          </div>
-
-          <div className="stats-card">
-            <div className="text-base sm:text-lg font-semibold mb-3 text-gray-700">
-              🎯 Rounds
-            </div>
-            <div className="text-2xl sm:text-3xl font-bold text-green-600">
-              {rounds.length}
-            </div>
-            <p className="text-xs sm:text-sm text-gray-600 mt-2">
-              {rounds.length > 0
-                ? `Last round: ${rounds[rounds.length - 1].roundNumber}`
-                : "No rounds yet"}
             </p>
           </div>
         </div>

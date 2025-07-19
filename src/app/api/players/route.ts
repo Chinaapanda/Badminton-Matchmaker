@@ -1,4 +1,4 @@
-import { getMatchmaker } from "@/lib/matchmaker-instance";
+import { getMatchmaker, saveMatchmakerData } from "@/lib/matchmaker-instance";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
@@ -29,6 +29,9 @@ export async function POST(request: NextRequest) {
     const playerId = matchmaker.addPlayer(name.trim());
     const player = matchmaker.getPlayers().find((p) => p.id === playerId);
 
+    // Save data to server
+    saveMatchmakerData(matchmaker.getDataForStorage());
+
     return NextResponse.json({ player }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
@@ -55,6 +58,9 @@ export async function DELETE(request: NextRequest) {
     if (!success) {
       return NextResponse.json({ error: "Player not found" }, { status: 404 });
     }
+
+    // Save data to server
+    saveMatchmakerData(matchmaker.getDataForStorage());
 
     return NextResponse.json({ success: true });
   } catch (error) {

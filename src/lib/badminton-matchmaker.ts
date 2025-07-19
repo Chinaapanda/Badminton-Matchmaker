@@ -31,16 +31,81 @@ export class BadmintonMatchmaker {
   private players: Map<string, Player> = new Map();
   private currentRound: number = 0;
   private courts: number = 1;
+  private randomnessLevel: number = 0.5; // 0 = no randomness, 1 = maximum randomness
   private partnershipHistory: PartnershipHistory = {};
   private oppositionHistory: OppositionHistory = {};
   private rounds: Round[] = [];
 
-  constructor(courts: number = 1) {
+  constructor(courts: number = 1, randomnessLevel: number = 0.5) {
     this.courts = courts;
+    this.randomnessLevel = Math.max(0, Math.min(1, randomnessLevel)); // Clamp between 0 and 1
+    this.loadFromStorage();
   }
 
-  updateConfiguration(courts: number): void {
+  // Add persistence methods
+  private saveToStorage(): void {
+    if (typeof window !== "undefined") {
+      try {
+        const data = this.getDataForStorage();
+        localStorage.setItem("badminton-matchmaker-data", JSON.stringify(data));
+      } catch (error) {
+        console.warn("Failed to save matchmaker data:", error);
+      }
+    }
+  }
+
+  private loadFromStorage(): void {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("badminton-matchmaker-data");
+        if (stored) {
+          const data = JSON.parse(stored);
+          this.loadFromData(data);
+        }
+      } catch (error) {
+        console.warn("Failed to load matchmaker data:", error);
+      }
+    }
+  }
+
+  // Method to load data from server-side storage
+  loadFromServerData(data: any): void {
+    this.loadFromData(data);
+  }
+
+  // Method to get data for storage (both client and server)
+  getDataForStorage(): any {
+    return {
+      players: Array.from(this.players.entries()),
+      currentRound: this.currentRound,
+      courts: this.courts,
+      randomnessLevel: this.randomnessLevel,
+      partnershipHistory: this.partnershipHistory,
+      oppositionHistory: this.oppositionHistory,
+      rounds: this.rounds,
+    };
+  }
+
+  // Private method to load data from any source
+  private loadFromData(data: any): void {
+    // Restore players
+    this.players = new Map(data.players || []);
+
+    // Restore other data
+    this.currentRound = data.currentRound || 0;
+    this.courts = data.courts || this.courts;
+    this.randomnessLevel = data.randomnessLevel || 0.5;
+    this.partnershipHistory = data.partnershipHistory || {};
+    this.oppositionHistory = data.oppositionHistory || {};
+    this.rounds = data.rounds || [];
+  }
+
+  updateConfiguration(courts: number, randomnessLevel?: number): void {
     this.courts = courts;
+    if (randomnessLevel !== undefined) {
+      this.randomnessLevel = Math.max(0, Math.min(1, randomnessLevel));
+    }
+    this.saveToStorage();
   }
 
   addPlayer(name: string): string {
@@ -59,6 +124,7 @@ export class BadmintonMatchmaker {
     this.partnershipHistory[id] = new Set();
     this.oppositionHistory[id] = new Set();
 
+    this.saveToStorage();
     return id;
   }
 
@@ -76,6 +142,7 @@ export class BadmintonMatchmaker {
         this.oppositionHistory[key].delete(playerId)
       );
 
+      this.saveToStorage();
       return true;
     }
     return false;
@@ -107,24 +174,86 @@ export class BadmintonMatchmaker {
       return { playing: allPlayers, sitting: [] };
     }
 
-    // Sort players by priority:
-    // 1. Fewer games played (ascending)
-    // 2. More rest rounds (descending) - prioritize those who've been sitting
-    // 3. Earlier last played round (ascending) - prioritize those who played longer ago
+    // Sort players by priority with randomization factor:
+    // 1. Fewer games played (ascending) - primary factor
+    // 2. More rest rounds (descending) - secondary factor
+    // 3. Earlier last played round (ascending) - tertiary factor
+    // 4. Random factor to break ties and add variety
     const sortedPlayers = allPlayers.sort((a, b) => {
+      // Primary: games played
       if (a.gamesPlayed !== b.gamesPlayed) {
         return a.gamesPlayed - b.gamesPlayed;
       }
+
+      // Secondary: rest rounds
       if (a.restRounds !== b.restRounds) {
         return b.restRounds - a.restRounds;
       }
-      return a.lastPlayedRound - b.lastPlayedRound;
+
+      // Tertiary: last played round
+      if (a.lastPlayedRound !== b.lastPlayedRound) {
+        return a.lastPlayedRound - b.lastPlayedRound;
+      }
+
+      // Random factor to break ties and add variety
+      return Math.random() - 0.5;
     });
 
-    const playing = sortedPlayers.slice(0, playersPerRound);
+    // Add additional randomization: shuffle players within the same priority group
+    const playing = this.shuffleWithinPriorityGroups(
+      sortedPlayers.slice(0, playersPerRound)
+    );
     const sitting = sortedPlayers.slice(playersPerRound);
 
     return { playing, sitting };
+  }
+
+  // Helper method to shuffle players within the same priority groups
+  private shuffleWithinPriorityGroups(players: Player[]): Player[] {
+    if (players.length <= 1) return players;
+
+    const shuffled = [...players];
+
+    // Group players by their priority (games played, rest rounds, last played round)
+    const groups: Player[][] = [];
+    let currentGroup: Player[] = [];
+    let currentPriority = this.getPlayerPriority(shuffled[0]);
+
+    for (const player of shuffled) {
+      const priority = this.getPlayerPriority(player);
+      if (priority === currentPriority) {
+        currentGroup.push(player);
+      } else {
+        if (currentGroup.length > 0) {
+          groups.push(currentGroup);
+        }
+        currentGroup = [player];
+        currentPriority = priority;
+      }
+    }
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
+    }
+
+    // Shuffle each group and combine
+    const result: Player[] = [];
+    for (const group of groups) {
+      if (group.length > 1) {
+        // Shuffle the group
+        for (let i = group.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [group[i], group[j]] = [group[j], group[i]];
+        }
+      }
+      result.push(...group);
+    }
+
+    return result;
+  }
+
+  // Helper method to get player priority for grouping
+  private getPlayerPriority(player: Player): string {
+    return `${player.gamesPlayed}-${player.restRounds}-${player.lastPlayedRound}`;
   }
 
   private hasPlayedTogether(player1: Player, player2: Player): boolean {
@@ -197,9 +326,40 @@ export class BadmintonMatchmaker {
     // Use the configured number of courts, but don't exceed available players
     const maxPossibleMatches = Math.floor(players.length / 4);
     const numMatches = Math.min(this.courts, maxPossibleMatches);
-    const matches: Match[] = [];
 
-    // For each court, find the best 4-player combination
+    // Adjust number of attempts based on randomness level
+    const baseAttempts = 3;
+    const maxAttempts = 10;
+    const attempts = Math.floor(
+      baseAttempts + this.randomnessLevel * (maxAttempts - baseAttempts)
+    );
+
+    let bestOverallMatches: Match[] = [];
+    let bestOverallScore = Infinity;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const matches = this.findMatchesWithRandomness(
+        players,
+        numMatches,
+        attempt
+      );
+      const totalScore = this.calculateTotalMatchScore(matches);
+
+      if (totalScore < bestOverallScore) {
+        bestOverallScore = totalScore;
+        bestOverallMatches = matches;
+      }
+    }
+
+    return bestOverallMatches;
+  }
+
+  private findMatchesWithRandomness(
+    players: Player[],
+    numMatches: number,
+    attempt: number
+  ): Match[] {
+    const matches: Match[] = [];
     const availablePlayers = [...players];
 
     for (let court = 0; court < numMatches; court++) {
@@ -208,6 +368,9 @@ export class BadmintonMatchmaker {
 
       // Try all possible combinations of 4 players from available
       const fourPlayerCombos = this.generateCombinations(availablePlayers, 4);
+
+      // Shuffle combinations to add randomness
+      this.shuffleArray(fourPlayerCombos);
 
       for (const fourPlayers of fourPlayerCombos) {
         // Try all possible team divisions (3 ways to divide 4 players into 2 teams of 2)
@@ -226,10 +389,14 @@ export class BadmintonMatchmaker {
           ],
         ];
 
+        // Shuffle team divisions to add randomness
+        this.shuffleArray(teamDivisions);
+
         for (const [team1, team2] of teamDivisions) {
-          const score = this.calculateMatchupScore(
+          const score = this.calculateMatchupScoreWithRandomness(
             team1 as [Player, Player],
-            team2 as [Player, Player]
+            team2 as [Player, Player],
+            attempt
           );
 
           if (score < bestScore) {
@@ -260,6 +427,36 @@ export class BadmintonMatchmaker {
     }
 
     return matches;
+  }
+
+  private calculateMatchupScoreWithRandomness(
+    team1: [Player, Player],
+    team2: [Player, Player],
+    attempt: number
+  ): number {
+    let score = this.calculateMatchupScore(team1, team2);
+
+    // Add random factor based on randomness level
+    // Higher randomness level = more random variation
+    const randomFactor =
+      (Math.random() - 0.5) * (score * this.randomnessLevel + 1);
+    score += randomFactor;
+
+    return score;
+  }
+
+  private calculateTotalMatchScore(matches: Match[]): number {
+    return matches.reduce((total, match) => {
+      return total + this.calculateMatchupScore(match.team1, match.team2);
+    }, 0);
+  }
+
+  // Helper method to shuffle arrays
+  private shuffleArray<T>(array: T[]): void {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
   }
 
   private updatePlayerStats(matches: Match[]): void {
@@ -329,6 +526,7 @@ export class BadmintonMatchmaker {
     this.rounds.push(round);
     this.currentRound++;
 
+    this.saveToStorage();
     return round;
   }
 
@@ -340,9 +538,10 @@ export class BadmintonMatchmaker {
     return this.currentRound;
   }
 
-  getConfiguration(): { courts: number } {
+  getConfiguration(): { courts: number; randomnessLevel: number } {
     return {
       courts: this.courts,
+      randomnessLevel: this.randomnessLevel,
     };
   }
 
@@ -388,5 +587,6 @@ export class BadmintonMatchmaker {
     Object.keys(this.oppositionHistory).forEach((playerId) => {
       this.oppositionHistory[playerId].clear();
     });
+    this.saveToStorage();
   }
 }
