@@ -55,6 +55,22 @@ export default function Home() {
           setCourts(serverConfig.courts || 1);
           setRandomnessLevel(serverConfig.randomnessLevel || 0.5);
         }
+
+        // Sync client data with server if available
+        const clientData = localStorage.getItem("badminton-matchmaker-data");
+        if (clientData) {
+          try {
+            const data = JSON.parse(clientData);
+            // Send the data to the server to sync state
+            await fetch("/api/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data }),
+            });
+          } catch (error) {
+            console.warn("Failed to sync client data:", error);
+          }
+        }
       } catch (error) {
         console.warn("Failed to load saved configuration:", error);
       }
@@ -97,7 +113,17 @@ export default function Home() {
       });
 
       if (response.ok) {
+        const data = await response.json();
         setNewPlayerName("");
+
+        // Save updated data to localStorage
+        if (data.updatedData) {
+          localStorage.setItem(
+            "badminton-matchmaker-data",
+            JSON.stringify(data.updatedData)
+          );
+        }
+
         fetchPlayers();
       } else {
         const data = await response.json();
@@ -117,6 +143,16 @@ export default function Home() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+
+        // Save updated data to localStorage
+        if (data.updatedData) {
+          localStorage.setItem(
+            "badminton-matchmaker-data",
+            JSON.stringify(data.updatedData)
+          );
+        }
+
         fetchPlayers();
       } else {
         const data = await response.json();
@@ -135,6 +171,16 @@ export default function Home() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+
+        // Save updated data to localStorage
+        if (data.updatedData) {
+          localStorage.setItem(
+            "badminton-matchmaker-data",
+            JSON.stringify(data.updatedData)
+          );
+        }
+
         fetchRounds();
         fetchPlayers();
         setActiveTab("rounds");
@@ -158,6 +204,16 @@ export default function Home() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+
+        // Save updated data to localStorage if provided
+        if (data.updatedData) {
+          localStorage.setItem(
+            "badminton-matchmaker-data",
+            JSON.stringify(data.updatedData)
+          );
+        }
+
         fetchRounds();
         fetchPlayers();
       } else {
@@ -190,6 +246,16 @@ export default function Home() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+
+        // Save updated data to localStorage
+        if (data.updatedData) {
+          localStorage.setItem(
+            "badminton-matchmaker-data",
+            JSON.stringify(data.updatedData)
+          );
+        }
+
         fetchRounds();
         fetchPlayers();
         setError("");
@@ -315,6 +381,42 @@ export default function Home() {
             </p>
           </div>
         </div>
+
+        {/* Generate Round Button - Always Accessible */}
+        {players.length >= 4 && (
+          <div className="mt-6 sm:mt-8 text-center">
+            <button
+              onClick={generateRound}
+              disabled={loading}
+              className="btn btn-primary text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4 shadow-2xl hover:shadow-3xl"
+            >
+              {loading ? (
+                <span className="flex items-center">
+                  <span className="animate-spin mr-2">⚡</span>
+                  Generating Round {currentRound + 1}...
+                </span>
+              ) : (
+                <span className="flex items-center">
+                  <span className="mr-2">🎯</span>
+                  Generate Round {currentRound + 1}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {players.length > 0 && players.length < 4 && (
+          <div className="mt-6 sm:mt-8 text-center p-4 sm:p-6 bg-yellow-50 rounded-xl border-2 border-yellow-200">
+            <div className="text-xl sm:text-2xl mb-2">⚠️</div>
+            <div className="text-base sm:text-lg font-semibold text-yellow-800">
+              Need at least 4 players to generate matches
+            </div>
+            <div className="text-yellow-600 mt-2 text-sm sm:text-base">
+              Currently have {players.length} player
+              {players.length !== 1 ? "s" : ""}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tab Navigation */}
@@ -415,41 +517,6 @@ export default function Home() {
               </div>
             ))}
           </div>
-
-          {players.length >= 4 && (
-            <div className="mt-6 sm:mt-8 text-center">
-              <button
-                onClick={generateRound}
-                disabled={loading}
-                className="btn btn-primary text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4"
-              >
-                {loading ? (
-                  <span className="flex items-center">
-                    <span className="animate-spin mr-2">⚡</span>
-                    Generating Round {currentRound + 1}...
-                  </span>
-                ) : (
-                  <span className="flex items-center">
-                    <span className="mr-2">🎯</span>
-                    Generate Round {currentRound + 1}
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
-
-          {players.length > 0 && players.length < 4 && (
-            <div className="mt-6 sm:mt-8 text-center p-4 sm:p-6 bg-yellow-50 rounded-xl border-2 border-yellow-200">
-              <div className="text-xl sm:text-2xl mb-2">⚠️</div>
-              <div className="text-base sm:text-lg font-semibold text-yellow-800">
-                Need at least 4 players to generate matches
-              </div>
-              <div className="text-yellow-600 mt-2 text-sm sm:text-base">
-                Currently have {players.length} player
-                {players.length !== 1 ? "s" : ""}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -592,9 +659,28 @@ export default function Home() {
               <h3 className="text-xl sm:text-2xl font-bold text-gray-700 mb-2">
                 No Rounds Yet
               </h3>
-              <p className="text-gray-600 text-sm sm:text-base">
+              <p className="text-gray-600 text-sm sm:text-base mb-6">
                 Generate your first round to see matches here!
               </p>
+              {players.length >= 4 && (
+                <button
+                  onClick={generateRound}
+                  disabled={loading}
+                  className="btn btn-primary text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4"
+                >
+                  {loading ? (
+                    <span className="flex items-center">
+                      <span className="animate-spin mr-2">⚡</span>
+                      Generating Round {currentRound + 1}...
+                    </span>
+                  ) : (
+                    <span className="flex items-center">
+                      <span className="mr-2">🎯</span>
+                      Generate Round {currentRound + 1}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -713,20 +799,27 @@ export default function Home() {
               <h3 className="text-xl sm:text-2xl font-bold text-gray-700 mb-2">
                 No Players Yet
               </h3>
-              <p className="text-gray-600 text-sm sm:text-base">
+              <p className="text-gray-600 text-sm sm:text-base mb-6">
                 Add some players to see statistics here!
               </p>
+              <button
+                onClick={() => setActiveTab("players")}
+                className="btn btn-primary text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4"
+              >
+                <span className="mr-2">👥</span>
+                Go to Players Tab
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Floating Action Button */}
+      {/* Floating Action Button - Always Visible When Ready */}
       {players.length >= 4 && (
         <button
           onClick={generateRound}
           disabled={loading}
-          className="floating-action"
+          className="floating-action shadow-2xl hover:shadow-3xl transition-all duration-300"
           title="Generate Next Round"
         >
           {loading ? (
@@ -734,6 +827,9 @@ export default function Home() {
           ) : (
             <span className="text-xl sm:text-2xl">🎯</span>
           )}
+          <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+            {currentRound + 1}
+          </div>
         </button>
       )}
     </div>

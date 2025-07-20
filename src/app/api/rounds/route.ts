@@ -1,4 +1,4 @@
-import { getMatchmaker, saveMatchmakerData } from "@/lib/matchmaker-instance";
+import { getMatchmaker } from "@/lib/matchmaker-instance";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -34,10 +34,14 @@ export async function POST() {
         );
       }
 
-      // Save data to server
-      saveMatchmakerData(matchmaker.getDataForStorage());
-
-      return NextResponse.json({ round }, { status: 201 });
+      // Return the updated data for client to save
+      return NextResponse.json(
+        {
+          round,
+          updatedData: matchmaker.getDataForStorage(),
+        },
+        { status: 201 }
+      );
     } catch (algorithmError: any) {
       return NextResponse.json(
         { error: algorithmError.message },

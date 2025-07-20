@@ -2,7 +2,6 @@ import {
   getCurrentConfiguration,
   getMatchmaker,
   resetMatchmaker,
-  saveMatchmakerData,
   updateConfiguration,
 } from "@/lib/matchmaker-instance";
 import { NextRequest, NextResponse } from "next/server";
@@ -29,22 +28,25 @@ export async function POST(request: NextRequest) {
         message: "Matchmaker reset successfully",
         courts: courts || 1,
         randomnessLevel: randomnessLevel || 0.5,
+        updatedData: matchmaker.getDataForStorage(),
       });
     }
 
     if (courts !== undefined || randomnessLevel !== undefined) {
       updateConfiguration(courts || 1, randomnessLevel);
 
-      // Save data to server if matchmaker instance exists
+      // Get updated data if matchmaker instance exists
       const matchmaker = getMatchmaker();
+      let updatedData = null;
       if (matchmaker) {
-        saveMatchmakerData(matchmaker.getDataForStorage());
+        updatedData = matchmaker.getDataForStorage();
       }
 
       return NextResponse.json({
         message: "Configuration updated successfully",
         courts: courts || 1,
         randomnessLevel: randomnessLevel || 0.5,
+        updatedData,
       });
     }
 

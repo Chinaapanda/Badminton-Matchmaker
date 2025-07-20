@@ -1,11 +1,9 @@
-import fs from "fs";
-import path from "path";
 import { BadmintonMatchmaker } from "./badminton-matchmaker";
 
 // Global singleton instance
 let matchmakerInstance: BadmintonMatchmaker | null = null;
 
-// Server-side configuration storage
+// Server-side configuration storage (temporary, will be overridden by client)
 let serverConfig: { courts: number; randomnessLevel: number } = {
   courts: 1,
   randomnessLevel: 0.5,
@@ -16,41 +14,6 @@ const DEFAULT_CONFIG = {
   courts: 1,
   randomnessLevel: 0.5,
 };
-
-// Data file path for server-side persistence
-const DATA_FILE_PATH = path.join(process.cwd(), "data", "matchmaker-data.json");
-
-// Ensure data directory exists
-function ensureDataDirectory() {
-  const dataDir = path.dirname(DATA_FILE_PATH);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-}
-
-// Load data from server-side file
-function loadServerData() {
-  try {
-    ensureDataDirectory();
-    if (fs.existsSync(DATA_FILE_PATH)) {
-      const data = JSON.parse(fs.readFileSync(DATA_FILE_PATH, "utf8"));
-      return data;
-    }
-  } catch (error) {
-    console.warn("Failed to load server data:", error);
-  }
-  return null;
-}
-
-// Save data to server-side file
-function saveServerData(data: any) {
-  try {
-    ensureDataDirectory();
-    fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.warn("Failed to save server data:", error);
-  }
-}
 
 // Get configuration from localStorage or use defaults
 function getStoredConfig() {
@@ -97,10 +60,17 @@ export function getMatchmaker(): BadmintonMatchmaker {
       config.randomnessLevel
     );
 
-    // Load server-side data if available
-    const serverData = loadServerData();
-    if (serverData) {
-      matchmakerInstance.loadFromServerData(serverData);
+    // Load data from client-side storage if available
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("badminton-matchmaker-data");
+        if (stored) {
+          const data = JSON.parse(stored);
+          matchmakerInstance.loadFromServerData(data);
+        }
+      } catch (error) {
+        console.warn("Failed to load matchmaker data:", error);
+      }
     }
   }
   return matchmakerInstance;
@@ -114,13 +84,13 @@ export function resetMatchmaker(
   saveConfig(config);
   matchmakerInstance = new BadmintonMatchmaker(courts, randomnessLevel);
 
-  // Clear server-side data
-  try {
-    if (fs.existsSync(DATA_FILE_PATH)) {
-      fs.unlinkSync(DATA_FILE_PATH);
+  // Clear client-side data
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("badminton-matchmaker-data");
+    } catch (error) {
+      console.warn("Failed to clear client data:", error);
     }
-  } catch (error) {
-    console.warn("Failed to clear server data:", error);
   }
 
   return matchmakerInstance;
@@ -153,11 +123,29 @@ export function getCurrentConfiguration() {
   return { ...serverConfig };
 }
 
-// Export functions for server-side data management
+// Export functions for client-side data management
 export function saveMatchmakerData(data: any) {
-  saveServerData(data);
+  // This will be called by the client-side code to save to localStorage
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("badminton-matchmaker-data", JSON.stringify(data));
+    } catch (error) {
+      console.warn("Failed to save matchmaker data:", error);
+    }
+  }
 }
 
 export function loadMatchmakerData() {
-  return loadServerData();
+  // This will be called by the client-side code to load from localStorage
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("badminton-matchmaker-data");
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn("Failed to load matchmaker data:", error);
+    }
+  }
+  return null;
 }
