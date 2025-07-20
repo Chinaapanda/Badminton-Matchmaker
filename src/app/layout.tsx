@@ -5,6 +5,8 @@ export const metadata: Metadata = {
   title: "Badminton Matchmaker",
   description:
     "A web application for generating fair badminton doubles matchups",
+  viewport:
+    "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
 };
 
 export default function RootLayout({

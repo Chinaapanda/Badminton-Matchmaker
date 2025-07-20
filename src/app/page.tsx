@@ -304,16 +304,16 @@ export default function Home() {
           <h2 className="text-2xl sm:text-3xl font-bold text-gradient">
             ⚙️ Configuration
           </h2>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
             <button
               onClick={updateConfig}
-              className="btn btn-secondary text-sm sm:text-base"
+              className="btn btn-secondary text-sm sm:text-base py-3 sm:py-3 min-h-[44px]"
             >
               💾 Save Settings
             </button>
             <button
               onClick={resetAll}
-              className="btn btn-danger text-sm sm:text-base"
+              className="btn btn-danger text-sm sm:text-base py-3 sm:py-3 min-h-[44px]"
             >
               🔄 Reset All
             </button>
@@ -331,7 +331,7 @@ export default function Home() {
               max="10"
               value={courts}
               onChange={(e) => setCourts(parseInt(e.target.value) || 1)}
-              className="input w-full text-center text-xl sm:text-2xl font-bold"
+              className="input w-full text-center text-xl sm:text-2xl font-bold min-h-[44px]"
             />
             <p className="text-xs sm:text-sm text-gray-600 mt-2">
               {courts * 4} players can play simultaneously
@@ -342,7 +342,7 @@ export default function Home() {
             <label className="block text-base sm:text-lg font-semibold mb-3 text-gray-700">
               🎲 Randomness Level
             </label>
-            <div className="flex items-center space-x-2 mb-2">
+            <div className="flex items-center space-x-3 mb-2">
               <input
                 type="range"
                 min="0"
@@ -350,9 +350,9 @@ export default function Home() {
                 step="0.1"
                 value={randomnessLevel}
                 onChange={(e) => setRandomnessLevel(parseFloat(e.target.value))}
-                className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                className="flex-1 h-3 sm:h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
               />
-              <span className="text-sm font-bold text-gray-700 min-w-[3rem]">
+              <span className="text-sm font-bold text-gray-700 min-w-[3rem] text-center">
                 {Math.round(randomnessLevel * 100)}%
               </span>
             </div>
@@ -388,15 +388,15 @@ export default function Home() {
             <button
               onClick={generateRound}
               disabled={loading}
-              className="btn btn-primary text-base sm:text-xl px-8 sm:px-12 py-3 sm:py-4 shadow-2xl hover:shadow-3xl"
+              className="btn btn-primary text-base sm:text-xl px-8 sm:px-12 py-4 sm:py-4 shadow-2xl hover:shadow-3xl min-h-[56px] w-full sm:w-auto"
             >
               {loading ? (
-                <span className="flex items-center">
+                <span className="flex items-center justify-center">
                   <span className="animate-spin mr-2">⚡</span>
                   Generating Round {currentRound + 1}...
                 </span>
               ) : (
-                <span className="flex items-center">
+                <span className="flex items-center justify-center">
                   <span className="mr-2">🎯</span>
                   Generate Round {currentRound + 1}
                 </span>
@@ -423,7 +423,7 @@ export default function Home() {
       <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 bg-white/20 backdrop-blur-sm rounded-2xl p-2">
         <button
           onClick={() => setActiveTab("players")}
-          className={`flex-1 py-2 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base ${
+          className={`flex-1 py-3 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base min-h-[44px] ${
             activeTab === "players"
               ? "bg-white text-blue-600 shadow-lg"
               : "text-white hover:bg-white/10"
@@ -433,7 +433,7 @@ export default function Home() {
         </button>
         <button
           onClick={() => setActiveTab("rounds")}
-          className={`flex-1 py-2 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base ${
+          className={`flex-1 py-3 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base min-h-[44px] ${
             activeTab === "rounds"
               ? "bg-white text-blue-600 shadow-lg"
               : "text-white hover:bg-white/10"
@@ -443,7 +443,7 @@ export default function Home() {
         </button>
         <button
           onClick={() => setActiveTab("stats")}
-          className={`flex-1 py-2 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base ${
+          className={`flex-1 py-3 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all duration-300 text-sm sm:text-base min-h-[44px] ${
             activeTab === "stats"
               ? "bg-white text-blue-600 shadow-lg"
               : "text-white hover:bg-white/10"
@@ -465,18 +465,18 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-4 sm:mb-6">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4 sm:mb-6">
             <input
               type="text"
               value={newPlayerName}
               onChange={(e) => setNewPlayerName(e.target.value)}
               onKeyPress={(e) => e.key === "Enter" && addPlayer()}
               placeholder="Enter player name..."
-              className="input flex-1 text-sm sm:text-base"
+              className="input flex-1 text-sm sm:text-base min-h-[44px]"
             />
             <button
               onClick={addPlayer}
-              className="btn btn-success text-sm sm:text-base"
+              className="btn btn-success text-sm sm:text-base py-3 sm:py-3 min-h-[44px]"
             >
               ➕ Add Player
             </button>
@@ -490,26 +490,27 @@ export default function Home() {
                 style={{ animationDelay: `${index * 100}ms` }}
               >
                 <div className="flex items-center justify-between mb-2 sm:mb-3">
-                  <div className="font-bold text-base sm:text-lg text-gray-800 truncate">
+                  <div className="font-bold text-base sm:text-lg text-gray-800 truncate flex-1 mr-2">
                     {player.name}
                   </div>
                   <button
                     onClick={() => removePlayer(player.id)}
-                    className="text-red-500 hover:text-red-700 text-lg sm:text-xl font-bold hover:scale-110 transition-transform flex-shrink-0 ml-2"
+                    className="text-red-500 hover:text-red-700 text-lg sm:text-xl font-bold hover:scale-110 transition-transform flex-shrink-0 min-w-[32px] min-h-[32px] flex items-center justify-center"
+                    title="Remove player"
                   >
                     ×
                   </button>
                 </div>
-                <div className="space-y-1 sm:space-y-2 text-xs sm:text-sm">
-                  <div className="flex justify-between">
+                <div className="space-y-2 sm:space-y-2 text-xs sm:text-sm">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-600">Games:</span>
-                    <span className="font-semibold text-blue-600">
+                    <span className="font-semibold text-blue-600 bg-blue-100 px-2 py-1 rounded-full text-xs">
                       {player.gamesPlayed}
                     </span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-600">Rest:</span>
-                    <span className="font-semibold text-orange-600">
+                    <span className="font-semibold text-orange-600 bg-orange-100 px-2 py-1 rounded-full text-xs">
                       {player.restRounds}
                     </span>
                   </div>
@@ -555,16 +556,16 @@ export default function Home() {
                           Team 1
                         </div>
                         <div className="space-y-1">
-                          <div className="text-base sm:text-lg font-semibold text-blue-700 truncate">
+                          <div className="text-sm sm:text-lg font-semibold text-blue-700 truncate px-1">
                             {match.team1[0].name}
                           </div>
-                          <div className="text-base sm:text-lg font-semibold text-blue-700 truncate">
+                          <div className="text-sm sm:text-lg font-semibold text-blue-700 truncate px-1">
                             {match.team1[1].name}
                           </div>
                         </div>
                       </div>
                       <div className="text-center">
-                        <div className="text-2xl sm:text-4xl font-bold text-gray-400">
+                        <div className="text-xl sm:text-4xl font-bold text-gray-400">
                           VS
                         </div>
                       </div>
@@ -573,10 +574,10 @@ export default function Home() {
                           Team 2
                         </div>
                         <div className="space-y-1">
-                          <div className="text-base sm:text-lg font-semibold text-green-700 truncate">
+                          <div className="text-sm sm:text-lg font-semibold text-green-700 truncate px-1">
                             {match.team2[0].name}
                           </div>
-                          <div className="text-base sm:text-lg font-semibold text-green-700 truncate">
+                          <div className="text-sm sm:text-lg font-semibold text-green-700 truncate px-1">
                             {match.team2[1].name}
                           </div>
                         </div>
@@ -743,16 +744,16 @@ export default function Home() {
                 <table className="w-full bg-white rounded-xl overflow-hidden shadow-lg">
                   <thead className="bg-gradient-to-r from-blue-500 to-purple-500 text-white">
                     <tr>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-left font-semibold text-xs sm:text-sm">
+                      <th className="px-2 sm:px-6 py-3 sm:py-4 text-left font-semibold text-xs sm:text-sm">
                         Player
                       </th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-center font-semibold text-xs sm:text-sm">
-                        Games Played
+                      <th className="px-1 sm:px-6 py-3 sm:py-4 text-center font-semibold text-xs sm:text-sm">
+                        Games
                       </th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-center font-semibold text-xs sm:text-sm">
-                        Rest Rounds
+                      <th className="px-1 sm:px-6 py-3 sm:py-4 text-center font-semibold text-xs sm:text-sm">
+                        Rest
                       </th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-center font-semibold text-xs sm:text-sm">
+                      <th className="px-2 sm:px-6 py-3 sm:py-4 text-center font-semibold text-xs sm:text-sm">
                         Status
                       </th>
                     </tr>
@@ -763,28 +764,28 @@ export default function Home() {
                         key={player.id}
                         className={index % 2 === 0 ? "bg-gray-50" : "bg-white"}
                       >
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-gray-800 text-xs sm:text-sm">
-                          {player.name}
+                        <td className="px-2 sm:px-6 py-3 sm:py-4 font-semibold text-gray-800 text-xs sm:text-sm max-w-[120px] sm:max-w-none">
+                          <div className="truncate" title={player.name}>
+                            {player.name}
+                          </div>
                         </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
-                          <span className="bg-blue-100 text-blue-800 px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium">
+                        <td className="px-1 sm:px-6 py-3 sm:py-4 text-center">
+                          <span className="bg-blue-100 text-blue-800 px-1 sm:px-3 py-1 rounded-full text-xs font-medium">
                             {player.gamesPlayed}
                           </span>
                         </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
-                          <span className="bg-orange-100 text-orange-800 px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium">
+                        <td className="px-1 sm:px-6 py-3 sm:py-4 text-center">
+                          <span className="bg-orange-100 text-orange-800 px-1 sm:px-3 py-1 rounded-full text-xs font-medium">
                             {player.restRounds}
                           </span>
                         </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
+                        <td className="px-2 sm:px-6 py-3 sm:py-4 text-center">
                           {player.restRounds > 0 ? (
-                            <span className="sitting-badge text-xs sm:text-sm">
+                            <span className="sitting-badge text-xs">
                               Resting
                             </span>
                           ) : (
-                            <span className="team-badge text-xs sm:text-sm">
-                              Active
-                            </span>
+                            <span className="team-badge text-xs">Active</span>
                           )}
                         </td>
                       </tr>
