@@ -47,6 +47,7 @@ export class BadmintonMatchmaker {
     if (typeof window !== "undefined") {
       try {
         const data = this.getDataForStorage();
+        console.log("Saving matchmaker data to localStorage", data);
         localStorage.setItem("badminton-matchmaker-data", JSON.stringify(data));
       } catch (error) {
         console.warn("Failed to save matchmaker data:", error);
@@ -60,7 +61,10 @@ export class BadmintonMatchmaker {
         const stored = localStorage.getItem("badminton-matchmaker-data");
         if (stored) {
           const data = JSON.parse(stored);
+          console.log("Loading matchmaker data from localStorage", data);
           this.loadFromData(data);
+        } else {
+          console.log("No matchmaker data found in localStorage");
         }
       } catch (error) {
         console.warn("Failed to load matchmaker data:", error);
@@ -80,10 +84,32 @@ export class BadmintonMatchmaker {
       currentRound: this.currentRound,
       courts: this.courts,
       randomnessLevel: this.randomnessLevel,
-      partnershipHistory: this.partnershipHistory,
-      oppositionHistory: this.oppositionHistory,
+      partnershipHistory: this.serializeSetHistory(this.partnershipHistory),
+      oppositionHistory: this.serializeSetHistory(this.oppositionHistory),
       rounds: this.rounds,
     };
+  }
+
+  // Helper method to serialize Set objects to arrays for JSON storage
+  private serializeSetHistory(history: { [playerId: string]: Set<string> }): {
+    [playerId: string]: string[];
+  } {
+    const serialized: { [playerId: string]: string[] } = {};
+    Object.keys(history).forEach((playerId) => {
+      serialized[playerId] = Array.from(history[playerId]);
+    });
+    return serialized;
+  }
+
+  // Helper method to deserialize arrays back to Set objects
+  private deserializeSetHistory(serialized: { [playerId: string]: string[] }): {
+    [playerId: string]: Set<string>;
+  } {
+    const history: { [playerId: string]: Set<string> } = {};
+    Object.keys(serialized).forEach((playerId) => {
+      history[playerId] = new Set(serialized[playerId]);
+    });
+    return history;
   }
 
   // Private method to load data from any source
@@ -95,9 +121,31 @@ export class BadmintonMatchmaker {
     this.currentRound = data.currentRound || 0;
     this.courts = data.courts || this.courts;
     this.randomnessLevel = data.randomnessLevel || 0.5;
-    this.partnershipHistory = data.partnershipHistory || {};
-    this.oppositionHistory = data.oppositionHistory || {};
+
+    // Properly restore Set-based histories
+    this.partnershipHistory = data.partnershipHistory
+      ? this.deserializeSetHistory(data.partnershipHistory)
+      : {};
+    this.oppositionHistory = data.oppositionHistory
+      ? this.deserializeSetHistory(data.oppositionHistory)
+      : {};
+
     this.rounds = data.rounds || [];
+
+    // Ensure all players have history entries
+    this.ensurePlayerHistories();
+  }
+
+  // Ensure all players have proper Set objects for their histories
+  private ensurePlayerHistories(): void {
+    this.players.forEach((player, playerId) => {
+      if (!this.partnershipHistory[playerId]) {
+        this.partnershipHistory[playerId] = new Set();
+      }
+      if (!this.oppositionHistory[playerId]) {
+        this.oppositionHistory[playerId] = new Set();
+      }
+    });
   }
 
   updateConfiguration(courts: number, randomnessLevel?: number): void {

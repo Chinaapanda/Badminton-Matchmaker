@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import StagewiseWrapper from "./stagewise-wrapper";
 
 export const metadata: Metadata = {
   title: "Badminton Matchmaker",
@@ -72,6 +73,7 @@ export default function RootLayout({
             </div>
           </footer>
         </div>
+        <StagewiseWrapper />
       </body>
     </html>
   );

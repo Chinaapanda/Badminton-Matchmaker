@@ -59,19 +59,7 @@ export function getMatchmaker(): BadmintonMatchmaker {
       config.courts,
       config.randomnessLevel
     );
-
-    // Load data from client-side storage if available
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem("badminton-matchmaker-data");
-        if (stored) {
-          const data = JSON.parse(stored);
-          matchmakerInstance.loadFromServerData(data);
-        }
-      } catch (error) {
-        console.warn("Failed to load matchmaker data:", error);
-      }
-    }
+    // The constructor already calls loadFromStorage(), so no need to load again
   }
   return matchmakerInstance;
 }
