@@ -6,7 +6,6 @@ import {
   updateConfiguration as updateMatchmakerConfig,
 } from "@/lib/matchmaker-instance";
 import { useEffect, useState } from "react";
-import TestRunner from "./test-runner";
 
 interface Player {
   id: string;
@@ -149,8 +148,6 @@ export default function Home() {
 
   return (
     <div className="space-y-4 sm:space-y-8 animate-fade-in">
-      <TestRunner />
-      {/* Error Alert */}
       {error && (
         <div className="animate-bounce-in bg-red-100 border-l-4 border-red-500 text-red-700 p-3 sm:p-4 rounded-lg shadow-lg">
           <div className="flex items-center justify-between">
