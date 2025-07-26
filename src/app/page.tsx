@@ -1,6 +1,12 @@
 "use client";
 
+import {
+  getMatchmaker,
+  resetMatchmaker,
+  updateConfiguration as updateMatchmakerConfig,
+} from "@/lib/matchmaker-instance";
 import { useEffect, useState } from "react";
+import TestRunner from "./test-runner";
 
 interface Player {
   id: string;
@@ -37,195 +43,75 @@ export default function Home() {
   );
 
   useEffect(() => {
-    // Load saved configuration from localStorage and server
-    const loadSavedConfig = async () => {
-      try {
-        // First try to get from localStorage
-        const saved = localStorage.getItem("badminton-matchmaker-config");
-        if (saved) {
-          const config = JSON.parse(saved);
-          setCourts(config.courts || 1);
-          setRandomnessLevel(config.randomnessLevel || 0.5);
-        }
-
-        // Also fetch from server as backup
-        const response = await fetch("/api/config");
-        if (response.ok) {
-          const serverConfig = await response.json();
-          setCourts(serverConfig.courts || 1);
-          setRandomnessLevel(serverConfig.randomnessLevel || 0.5);
-        }
-
-        // Sync client data with server if available
-        const clientData = localStorage.getItem("badminton-matchmaker-data");
-        if (clientData) {
-          try {
-            const data = JSON.parse(clientData);
-            // Send the data to the server to sync state
-            await fetch("/api/sync", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ data }),
-            });
-          } catch (error) {
-            console.warn("Failed to sync client data:", error);
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to load saved configuration:", error);
-      }
-    };
-
-    loadSavedConfig();
-    fetchPlayers();
-    fetchRounds();
+    // Load saved configuration and data from localStorage
+    const matchmaker = getMatchmaker();
+    const config = matchmaker.getConfiguration();
+    setCourts(config.courts || 1);
+    setRandomnessLevel(config.randomnessLevel || 0.5);
+    setPlayers(matchmaker.getPlayers());
+    setRounds(matchmaker.getRounds());
+    setCurrentRound(matchmaker.getCurrentRound());
   }, []);
 
-  const fetchPlayers = async () => {
-    try {
-      const response = await fetch("/api/players");
-      const data = await response.json();
-      setPlayers(data.players);
-    } catch (err) {
-      setError("Failed to fetch players");
-    }
+  const fetchPlayers = () => {
+    const matchmaker = getMatchmaker();
+    setPlayers(matchmaker.getPlayers());
   };
 
-  const fetchRounds = async () => {
-    try {
-      const response = await fetch("/api/rounds");
-      const data = await response.json();
-      setRounds(data.rounds);
-      setCurrentRound(data.currentRound);
-    } catch (err) {
-      setError("Failed to fetch rounds");
-    }
+  const fetchRounds = () => {
+    const matchmaker = getMatchmaker();
+    setRounds(matchmaker.getRounds());
+    setCurrentRound(matchmaker.getCurrentRound());
   };
 
-  const addPlayer = async () => {
+  const addPlayer = () => {
     if (!newPlayerName.trim()) return;
-
     try {
-      const response = await fetch("/api/players", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newPlayerName.trim() }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setNewPlayerName("");
-
-        // Save updated data to localStorage
-        if (data.updatedData) {
-          localStorage.setItem(
-            "badminton-matchmaker-data",
-            JSON.stringify(data.updatedData)
-          );
-        }
-
-        fetchPlayers();
-      } else {
-        const data = await response.json();
-        setError(data.error || "Failed to add player");
-      }
+      const matchmaker = getMatchmaker();
+      matchmaker.addPlayer(newPlayerName.trim());
+      setNewPlayerName("");
+      fetchPlayers();
     } catch (err) {
       setError("Failed to add player");
     }
   };
 
-  const removePlayer = async (playerId: string) => {
+  const removePlayer = (playerId: string) => {
     try {
-      const response = await fetch("/api/players", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-
-        // Save updated data to localStorage
-        if (data.updatedData) {
-          localStorage.setItem(
-            "badminton-matchmaker-data",
-            JSON.stringify(data.updatedData)
-          );
-        }
-
-        fetchPlayers();
-      } else {
-        const data = await response.json();
-        setError(data.error || "Failed to remove player");
-      }
+      const matchmaker = getMatchmaker();
+      matchmaker.removePlayer(playerId);
+      fetchPlayers();
     } catch (err) {
       setError("Failed to remove player");
     }
   };
 
-  const generateRound = async () => {
+  const generateRound = () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/rounds", {
-        method: "POST",
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-
-        // Save updated data to localStorage
-        if (data.updatedData) {
-          localStorage.setItem(
-            "badminton-matchmaker-data",
-            JSON.stringify(data.updatedData)
-          );
-        }
-
-        fetchRounds();
-        fetchPlayers();
-        setActiveTab("rounds");
-      } else {
-        const data = await response.json();
-        setError(data.error || "Failed to generate round");
-      }
-    } catch (err) {
-      setError("Failed to generate round");
+      const matchmaker = getMatchmaker();
+      matchmaker.generateNextRound();
+      fetchRounds();
+      fetchPlayers();
+      setActiveTab("rounds");
+    } catch (err: any) {
+      setError(err.message || "Failed to generate round");
     } finally {
       setLoading(false);
     }
   };
 
-  const updateConfig = async () => {
+  const updateConfig = () => {
     try {
-      const response = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courts, randomnessLevel }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-
-        // Save updated data to localStorage if provided
-        if (data.updatedData) {
-          localStorage.setItem(
-            "badminton-matchmaker-data",
-            JSON.stringify(data.updatedData)
-          );
-        }
-
-        fetchRounds();
-        fetchPlayers();
-      } else {
-        const data = await response.json();
-        setError(data.error || "Failed to update configuration");
-      }
+      updateMatchmakerConfig(courts, randomnessLevel);
+      fetchRounds();
+      fetchPlayers();
     } catch (err) {
       setError("Failed to update configuration");
     }
   };
 
-  const resetAll = async () => {
+  const resetAll = () => {
     if (
       !confirm(
         "Are you sure you want to reset everything? This will clear all players and rounds."
@@ -233,36 +119,19 @@ export default function Home() {
     ) {
       return;
     }
-
     try {
-      const response = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reset: true,
-          courts,
-          randomnessLevel,
-        }),
-      });
+      // Clear all localStorage data
+      localStorage.removeItem("badminton-matchmaker-data");
+      localStorage.removeItem("badminton-matchmaker-config");
 
-      if (response.ok) {
-        const data = await response.json();
+      // Reset the matchmaker instance
+      resetMatchmaker(courts, randomnessLevel);
 
-        // Save updated data to localStorage
-        if (data.updatedData) {
-          localStorage.setItem(
-            "badminton-matchmaker-data",
-            JSON.stringify(data.updatedData)
-          );
-        }
-
-        fetchRounds();
-        fetchPlayers();
-        setError("");
-      } else {
-        const data = await response.json();
-        setError(data.error || "Failed to reset");
-      }
+      // Reset React state
+      setPlayers([]);
+      setRounds([]);
+      setCurrentRound(0);
+      setError("");
     } catch (err) {
       setError("Failed to reset");
     }
@@ -280,6 +149,7 @@ export default function Home() {
 
   return (
     <div className="space-y-4 sm:space-y-8 animate-fade-in">
+      <TestRunner />
       {/* Error Alert */}
       {error && (
         <div className="animate-bounce-in bg-red-100 border-l-4 border-red-500 text-red-700 p-3 sm:p-4 rounded-lg shadow-lg">
