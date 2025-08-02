@@ -84,6 +84,12 @@ export function resetMatchmaker(
   return matchmakerInstance;
 }
 
+export function resetGame(): void {
+  if (matchmakerInstance) {
+    matchmakerInstance.resetGame();
+  }
+}
+
 export function updateConfiguration(
   courts: number,
   randomnessLevel?: number

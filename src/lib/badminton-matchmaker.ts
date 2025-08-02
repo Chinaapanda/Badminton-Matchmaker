@@ -160,10 +160,21 @@ export class BadmintonMatchmaker {
     const id = `player_${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 9)}`;
+
+    // Calculate average games played by existing players for fairness
+    const existingPlayers = Array.from(this.players.values());
+    const avgGamesPlayed =
+      existingPlayers.length > 0
+        ? Math.round(
+            existingPlayers.reduce((sum, p) => sum + p.gamesPlayed, 0) /
+              existingPlayers.length
+          )
+        : 0;
+
     const player: Player = {
       id,
       name,
-      gamesPlayed: 0,
+      gamesPlayed: avgGamesPlayed, // Set to average for fairness
       lastPlayedRound: -1,
       restRounds: 0,
     };
@@ -636,5 +647,174 @@ export class BadmintonMatchmaker {
       this.oppositionHistory[playerId].clear();
     });
     this.saveToStorage();
+  }
+
+  // Reset only game data (rounds and player stats) but keep players
+  resetGame(): void {
+    // Reset round data
+    this.currentRound = 0;
+    this.rounds = [];
+
+    // Reset player stats but keep players
+    this.players.forEach((player) => {
+      player.gamesPlayed = 0;
+      player.lastPlayedRound = -1;
+      player.restRounds = 0;
+    });
+
+    // Reset partnership and opposition history
+    this.partnershipHistory = {};
+    this.oppositionHistory = {};
+
+    this.saveToStorage();
+  }
+
+  // Add new method to finish a court and generate new match
+  finishCourtAndGenerateNew(courtNumber: number): Round | null {
+    // Find the current round
+    if (this.rounds.length === 0) {
+      throw new Error("No current round to finish");
+    }
+
+    const currentRound = this.rounds[this.rounds.length - 1];
+    const courtMatch = currentRound.matches.find(
+      (match) => match.court === courtNumber
+    );
+
+    if (!courtMatch) {
+      throw new Error(`Court ${courtNumber} not found in current round`);
+    }
+
+    // Get players who just finished the match (they should be available for new match)
+    const justFinishedPlayers = [...courtMatch.team1, ...courtMatch.team2];
+
+    // Update player stats for the finished match
+    this.updatePlayerStats([courtMatch]);
+
+    // Remove the finished match from current round
+    currentRound.matches = currentRound.matches.filter(
+      (match) => match.court !== courtNumber
+    );
+
+    // If no more matches in current round, generate next round
+    if (currentRound.matches.length === 0) {
+      return this.generateNextRound();
+    }
+
+    // If there are still matches, generate a new match for this court
+    const availablePlayers =
+      this.getAvailablePlayersForNewMatch(justFinishedPlayers);
+
+    if (availablePlayers.length >= 4) {
+      const newMatch = this.generateSingleMatch(availablePlayers, courtNumber);
+      if (newMatch) {
+        currentRound.matches.push(newMatch);
+        this.saveToStorage();
+        return currentRound;
+      }
+    }
+
+    this.saveToStorage();
+    return currentRound;
+  }
+
+  // Helper method to get available players for a new match
+  private getAvailablePlayersForNewMatch(
+    justFinishedPlayers?: Player[]
+  ): Player[] {
+    const allPlayers = Array.from(this.players.values());
+
+    // Get players who are not currently playing in the latest round
+    if (this.rounds.length === 0) {
+      return allPlayers;
+    }
+
+    const currentRound = this.rounds[this.rounds.length - 1];
+    const currentlyPlayingIds = new Set(
+      currentRound.matches.flatMap((match) => [
+        ...match.team1.map((p) => p.id),
+        ...match.team2.map((p) => p.id),
+      ])
+    );
+
+    // Get players who are not currently playing
+    const notCurrentlyPlaying = allPlayers.filter(
+      (player) => !currentlyPlayingIds.has(player.id)
+    );
+
+    // If we have players who just finished, prioritize them for the new match
+    if (justFinishedPlayers && justFinishedPlayers.length > 0) {
+      // Combine just finished players with other available players
+      const justFinishedIds = new Set(justFinishedPlayers.map((p) => p.id));
+      const otherAvailablePlayers = notCurrentlyPlaying.filter(
+        (p) => !justFinishedIds.has(p.id)
+      );
+
+      // Shuffle both groups to add randomness
+      this.shuffleArray(justFinishedPlayers);
+      this.shuffleArray(otherAvailablePlayers);
+
+      // Return just finished players first, then others
+      return [...justFinishedPlayers, ...otherAvailablePlayers];
+    }
+
+    return notCurrentlyPlaying;
+  }
+
+  // Helper method to generate a single match
+  private generateSingleMatch(
+    players: Player[],
+    courtNumber: number
+  ): Match | null {
+    if (players.length < 4) return null;
+
+    // Sort players by priority (games played, rest rounds, etc.)
+    const sortedPlayers = [...players].sort((a, b) => {
+      // First priority: players who have played fewer games
+      if (a.gamesPlayed !== b.gamesPlayed) {
+        return a.gamesPlayed - b.gamesPlayed;
+      }
+      // Second priority: players who have been resting longer
+      if (a.restRounds !== b.restRounds) {
+        return b.restRounds - a.restRounds;
+      }
+      // Third priority: random
+      return Math.random() - 0.5;
+    });
+
+    // Take the first 4 players for the match
+    const selectedPlayers = sortedPlayers.slice(0, 4);
+
+    // Generate all possible team combinations
+    const combinations = this.generateCombinations(selectedPlayers, 2);
+    let bestMatch: Match | null = null;
+    let bestScore = -Infinity;
+
+    // Try different team combinations
+    for (let i = 0; i < combinations.length; i++) {
+      for (let j = i + 1; j < combinations.length; j++) {
+        const team1 = combinations[i] as [Player, Player];
+        const team2 = combinations[j] as [Player, Player];
+
+        // Check if teams are valid (no duplicate players)
+        const allPlayers = [...team1, ...team2];
+        const uniquePlayers = new Set(allPlayers.map((p) => p.id));
+        if (uniquePlayers.size !== 4) continue;
+
+        // Calculate matchup score
+        const score = this.calculateMatchupScore(team1, team2);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = {
+            court: courtNumber,
+            team1,
+            team2,
+          };
+        }
+      }
+    }
+
+    return bestMatch;
   }
 }
