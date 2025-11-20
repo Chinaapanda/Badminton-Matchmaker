@@ -1,50 +1,44 @@
 "use client";
 
+import PlayerRoster from "@/components/players/PlayerRoster";
+import PlayerSearchModal from "@/components/players/PlayerSearchModal";
+import Leaderboard from "@/components/ranking/Leaderboard";
+import MatchList from "@/components/rounds/MatchList";
+import MatchResultModal from "@/components/rounds/MatchResultModal";
+import SettingsPanel from "@/components/settings/SettingsPanel";
+import { useAuth } from "@/contexts/AuthContext";
+import { Profile } from "@/lib/api/auth";
+import { addPlayer as addPlayerDB, addPlayerFromProfile as addPlayerFromProfileDB, deletePlayer as deletePlayerDB, fetchPlayers, updatePlayerStats } from "@/lib/api/players";
 import {
   getMatchmaker,
   resetGame,
   resetMatchmaker,
   updateConfiguration as updateMatchmakerConfig,
 } from "@/lib/matchmaker-instance";
+import { Match, Player, Round } from "@/types";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-interface Player {
-  id: string;
-  name: string;
-  gamesPlayed: number;
-  lastPlayedRound: number;
-  restRounds: number;
-}
-
-interface Match {
-  court: number;
-  team1: [Player, Player];
-  team2: [Player, Player];
-}
-
-interface Round {
-  roundNumber: number;
-  matches: Match[];
-  playersPlaying: Player[];
-  playersSittingOut: Player[];
-}
 
 export default function Home() {
+  const { user, profile, loading: authLoading, signOut } = useAuth();
+  const router = useRouter();
   const [players, setPlayers] = useState<Player[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [currentRound, setCurrentRound] = useState(0);
   const [newPlayerName, setNewPlayerName] = useState("");
   const [courts, setCourts] = useState(1);
   const [randomnessLevel, setRandomnessLevel] = useState(0.5);
+  const [lineToken, setLineToken] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sendingNotify, setSendingNotify] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<"players" | "rounds" | "stats">(
-    "players"
-  );
-  const [finishingCourt, setFinishingCourt] = useState<number | null>(null);
-  const [showNewMatchPreview, setShowNewMatchPreview] = useState<number | null>(
-    null
-  );
+  const [activeTab, setActiveTab] = useState<"players" | "rounds" | "ranking" | "settings">("players");
+  const [finishingMatch, setFinishingMatch] = useState<Match | null>(null);
+  const [matchResult, setMatchResult] = useState<{ winner: 1 | 2 | null; score: string }>({ winner: null, score: "" });
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
 
   useEffect(() => {
     // Load saved configuration and data from localStorage
@@ -52,41 +46,127 @@ export default function Home() {
     const config = matchmaker.getConfiguration();
     setCourts(config.courts || 1);
     setRandomnessLevel(config.randomnessLevel || 0.5);
-    setPlayers(matchmaker.getPlayers());
-    setRounds(matchmaker.getRounds());
-    setCurrentRound(matchmaker.getCurrentRound());
+    
+    // Load Line Token from localStorage manually as it's not in the core matchmaker config yet
+    const savedToken = localStorage.getItem("badminton-line-token");
+    if (savedToken) setLineToken(savedToken);
+
+    // Load players from Supabase
+    loadPlayersFromSupabase();
+
+    refreshData();
   }, []);
 
-  const fetchPlayers = () => {
-    const matchmaker = getMatchmaker();
-    setPlayers(matchmaker.getPlayers());
-  };
-
-  const fetchRounds = () => {
-    const matchmaker = getMatchmaker();
-    setRounds(matchmaker.getRounds());
-    setCurrentRound(matchmaker.getCurrentRound());
-  };
-
-  const addPlayer = () => {
-    if (!newPlayerName.trim()) return;
+  const loadPlayersFromSupabase = async () => {
     try {
+      const playersFromDB = await fetchPlayers();
+      
+      // Sync players to matchmaker
       const matchmaker = getMatchmaker();
-      matchmaker.addPlayer(newPlayerName.trim());
-      setNewPlayerName("");
-      fetchPlayers();
+      matchmaker.clearPlayers(); // Clear local players first
+      
+      playersFromDB.forEach((dbPlayer: { id: string; name: string; elo: number; wins: number; losses: number }) => {
+        // Add each player to the matchmaker with their stats
+        matchmaker.addPlayer(dbPlayer.name, {
+          id: dbPlayer.id,
+          elo: dbPlayer.elo,
+          wins: dbPlayer.wins,
+          losses: dbPlayer.losses,
+        });
+      });
+
+
+      refreshData();
     } catch (err) {
-      setError("Failed to add player");
+      console.error('Failed to load players from Supabase:', err);
+      setError('Failed to load players from database');
     }
   };
 
-  const removePlayer = (playerId: string) => {
+
+  const refreshData = () => {
+    const matchmaker = getMatchmaker();
+    setPlayers(matchmaker.getPlayers());
+    setRounds(matchmaker.getRounds());
+    setCurrentRound(matchmaker.getCurrentRound());
+  };
+
+  const addPlayer = async () => {
+    if (!newPlayerName.trim()) return;
     try {
+      // Add to Supabase first
+      const newPlayer = await addPlayerDB(newPlayerName.trim());
+      
+      // Then add to matchmaker with the same ID
+      const matchmaker = getMatchmaker();
+      matchmaker.addPlayer(newPlayer.name, {
+        id: newPlayer.id,
+        elo: newPlayer.elo,
+        wins: newPlayer.wins,
+        losses: newPlayer.losses,
+      });
+      
+      setNewPlayerName("");
+      refreshData();
+    } catch (err) {
+      console.error('Failed to add player:', err);
+      setError("Failed to add player to database");
+    }
+  };
+
+
+  const removePlayer = async (playerId: string) => {
+    if (!confirm("Remove this player?")) return;
+    try {
+      // Delete from Supabase first
+      await deletePlayerDB(playerId);
+      
+      // Then remove from matchmaker
       const matchmaker = getMatchmaker();
       matchmaker.removePlayer(playerId);
-      fetchPlayers();
+      refreshData();
     } catch (err) {
-      setError("Failed to remove player");
+      console.error('Failed to remove player:', err);
+      setError("Failed to remove player from database");
+    }
+  };
+
+
+  const togglePlayerActive = (playerId: string) => {
+    try {
+      const matchmaker = getMatchmaker();
+      matchmaker.togglePlayerActive(playerId);
+      refreshData();
+    } catch (err) {
+      setError("Failed to toggle player status");
+    }
+  };
+
+  const addPlayerFromUserProfile = async (profile: Profile) => {
+    try {
+      // Add to Supabase with profile's stats
+      const newPlayer = await addPlayerFromProfileDB(
+        profile.id,
+        profile.display_name || profile.email || "Unknown",
+        profile.elo,
+        profile.wins,
+        profile.losses
+      );
+      
+      // Then add to matchmaker with the same ID and stats
+      const matchmaker = getMatchmaker();
+      matchmaker.addPlayer(newPlayer.name, {
+        id: newPlayer.id,
+        elo: newPlayer.elo,
+        wins: newPlayer.wins,
+        losses: newPlayer.losses,
+      });
+      
+      refreshData();
+      setShowSearchModal(false);
+    } catch (err) {
+      console.error('Failed to add player from profile:', err);
+      setError("Failed to add player from profile");
     }
   };
 
@@ -95,8 +175,7 @@ export default function Home() {
     try {
       const matchmaker = getMatchmaker();
       matchmaker.generateNextRound();
-      fetchRounds();
-      fetchPlayers();
+      refreshData();
       setActiveTab("rounds");
     } catch (err: any) {
       setError(err.message || "Failed to generate round");
@@ -108,33 +187,23 @@ export default function Home() {
   const updateConfig = () => {
     try {
       updateMatchmakerConfig(courts, randomnessLevel);
-      fetchRounds();
-      fetchPlayers();
+      localStorage.setItem("badminton-line-token", lineToken);
+      refreshData();
+      alert("Settings saved!");
     } catch (err) {
       setError("Failed to update configuration");
     }
   };
 
   const resetAll = () => {
-    if (
-      !confirm(
-        "Are you sure you want to reset everything? This will clear all players and rounds."
-      )
-    ) {
-      return;
-    }
+    if (!confirm("Reset EVERYTHING? This cannot be undone.")) return;
     try {
-      // Clear all localStorage data
       localStorage.removeItem("badminton-matchmaker-data");
       localStorage.removeItem("badminton-matchmaker-config");
-
-      // Reset the matchmaker instance
+      localStorage.removeItem("badminton-line-token");
+      setLineToken("");
       resetMatchmaker(courts, randomnessLevel);
-
-      // Reset React state
-      setPlayers([]);
-      setRounds([]);
-      setCurrentRound(0);
+      refreshData();
       setError("");
     } catch (err) {
       setError("Failed to reset");
@@ -142,691 +211,306 @@ export default function Home() {
   };
 
   const resetGameOnly = () => {
-    if (
-      !confirm(
-        "Are you sure you want to reset the game? This will clear all rounds and player stats, but keep all players."
-      )
-    ) {
-      return;
-    }
+    if (!confirm("Reset current game session? Players will remain.")) return;
     try {
-      // Reset only game data
       resetGame();
-
-      // Refresh data
-      fetchRounds();
-      fetchPlayers();
+      refreshData();
       setError("");
     } catch (err) {
       setError("Failed to reset game");
     }
   };
 
-  const getPlayerStats = () => {
-    const totalGames = players.reduce((sum, p) => sum + p.gamesPlayed, 0);
-    const avgGames =
-      players.length > 0 ? (totalGames / players.length).toFixed(1) : "0";
-    const maxGames = Math.max(...players.map((p) => p.gamesPlayed), 0);
-    const minGames = Math.min(...players.map((p) => p.gamesPlayed), 0);
-
-    return { totalGames, avgGames, maxGames, minGames };
+  const openFinishModal = (match: Match) => {
+    setFinishingMatch(match);
+    setMatchResult({ winner: null, score: "" });
   };
 
-  // Add new function to finish court and generate new match
-  const finishCourtAndGenerateNew = async (courtNumber: number) => {
-    setFinishingCourt(courtNumber);
+  const closeFinishModal = () => {
+    setFinishingMatch(null);
+  };
+
+  const saveMatchResult = async () => {
+    if (!finishingMatch || !matchResult.winner) {
+      alert("Please select a winner");
+      return;
+    }
     try {
       const matchmaker = getMatchmaker();
-      const updatedRound = matchmaker.finishCourtAndGenerateNew(courtNumber);
-      fetchRounds();
-      fetchPlayers();
-
-      // Show success message
-      setError(""); // Clear any previous errors
+      matchmaker.recordMatchResult(finishingMatch.id, matchResult.winner, matchResult.score);
+      
+      // Get all players involved in the match and sync their stats to Supabase
+      const allMatchPlayers = [...finishingMatch.team1, ...finishingMatch.team2];
+      for (const player of allMatchPlayers) {
+        const updatedPlayer = matchmaker.getPlayers().find(p => p.id === player.id);
+        if (updatedPlayer) {
+          await updatePlayerStats(updatedPlayer.id, {
+            elo: updatedPlayer.elo,
+            wins: updatedPlayer.wins,
+            losses: updatedPlayer.losses,
+          });
+        }
+      }
+      
+      // Auto-generate new match for this court
+      matchmaker.finishCourtAndGenerateNew(finishingMatch.court);
+      
+      refreshData();
+      closeFinishModal();
     } catch (err: any) {
-      setError(err.message || "Failed to finish court");
-    } finally {
-      setFinishingCourt(null);
+      console.error('Failed to save match result:', err);
+      setError(err.message || "Failed to save result");
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* Header */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20"></div>
-        <div className="relative z-10 container mx-auto px-4 py-8">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent mb-4">
-              🏸 Badminton Matchmaker
-            </h1>
-            <p className="text-blue-200 text-lg md:text-xl max-w-2xl mx-auto">
-              Smart tournament management with fair player rotation and
-              real-time court management
-            </p>
-          </div>
+
+  const sendLineNotification = async () => {
+    if (!lineToken) {
+      alert("Please set a Line Notify Token in Settings first.");
+      return;
+    }
+    if (rounds.length === 0) return;
+
+    setSendingNotify(true);
+    const round = rounds[rounds.length - 1];
+    
+    let message = `\n🏸 Round ${round.roundNumber} Matches 🏸\n`;
+    round.matches.forEach(m => {
+      message += `\nCourt ${m.court}:\n`;
+      message += `${m.team1.map(p => p.name).join(" & ")} VS ${m.team2.map(p => p.name).join(" & ")}\n`;
+    });
+
+    if (round.playersSittingOut.length > 0) {
+      message += `\nSitting out: ${round.playersSittingOut.map(p => p.name).join(", ")}`;
+    }
+
+    try {
+      const res = await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: lineToken, message }),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        alert("Notification sent!");
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (err: any) {
+      setError("Failed to send notification: " + err.message);
+    } finally {
+      setSendingNotify(false);
+    }
+  };
+
+  // Derived state
+  const activePlayersCount = players.filter(p => p.active).length;
+
+  // Show login page if not authenticated
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-2 border-emerald-500 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-zinc-400">Loading...</p>
         </div>
       </div>
+    );
+  }
 
-      <div className="container mx-auto px-4 pb-20 space-y-6">
-        {error && (
-          <div className="animate-bounce-in bg-red-500/10 backdrop-blur-md border border-red-500/30 text-red-200 p-4 rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <span className="text-2xl mr-3">⚠️</span>
-                <span className="font-medium">{error}</span>
-              </div>
-              <button
-                onClick={() => setError("")}
-                className="text-red-300 hover:text-red-100 text-2xl font-bold transition-colors"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        )}
+  if (!user || !profile) {
+    router.push('/login');
+    return null;
+  }
 
-        {/* Quick Stats Dashboard */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glass-card text-center p-6">
-            <div className="text-3xl font-bold text-blue-300 mb-2">
-              {players.length}
-            </div>
-            <div className="text-blue-100 text-sm">Total Players</div>
-          </div>
-          <div className="glass-card text-center p-6">
-            <div className="text-3xl font-bold text-green-300 mb-2">
-              {rounds.length}
-            </div>
-            <div className="text-green-100 text-sm">Rounds Played</div>
-          </div>
-          <div className="glass-card text-center p-6">
-            <div className="text-3xl font-bold text-purple-300 mb-2">
-              {courts}
-            </div>
-            <div className="text-purple-100 text-sm">Active Courts</div>
-          </div>
-          <div className="glass-card text-center p-6">
-            <div className="text-3xl font-bold text-orange-300 mb-2">
-              {Math.round(randomnessLevel * 100)}%
-            </div>
-            <div className="text-orange-100 text-sm">Randomness</div>
-          </div>
+  // Check if user is banned
+  if (profile.is_banned) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 bg-red-500/20 border-2 border-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">🚫</div>
+          <h1 className="text-2xl font-bold mb-2">Account Suspended</h1>
+          <p className="text-zinc-400 mb-6">Your account has been banned. Please contact an administrator for more information.</p>
+          <button
+            onClick={() => signOut()}
+            className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-all"
+          >
+            Sign Out
+          </button>
         </div>
+      </div>
+    );
+  }
 
-        {/* Configuration Panel */}
-        <div className="glass-card p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 space-y-4 lg:space-y-0">
-            <h2 className="text-2xl font-bold text-white flex items-center">
-              <span className="mr-3">⚙️</span>
-              Tournament Settings
-            </h2>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={updateConfig} className="btn-modern btn-primary">
-                💾 Save Settings
-              </button>
-              <button
-                onClick={resetGameOnly}
-                className="btn-modern btn-warning"
-              >
-                🎮 Reset Game
-              </button>
-              <button onClick={resetAll} className="btn-modern btn-danger">
-                🔄 Reset All
-              </button>
-            </div>
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-emerald-500/30">
+      {/* Minimal Header */}
+      <header className="border-b border-zinc-800 bg-zinc-950/50 backdrop-blur-md sticky top-0 z-20">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center font-bold text-zinc-950">B</div>
+            <h1 className="text-lg font-bold tracking-tight">Badminton Matchmaker</h1>
           </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-blue-200 font-semibold mb-3">
-                  🏟️ Number of Courts
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={courts}
-                    onChange={(e) => setCourts(parseInt(e.target.value) || 1)}
-                    className="input-modern w-full text-center text-2xl font-bold"
-                  />
-                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-blue-300 text-sm">
-                    {courts * 4} players
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-blue-200 font-semibold mb-3">
-                  🎲 Randomness Level
-                </label>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-4">
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.1"
-                      value={randomnessLevel}
-                      onChange={(e) =>
-                        setRandomnessLevel(parseFloat(e.target.value))
-                      }
-                      className="slider-modern flex-1"
-                    />
-                    <span className="text-white font-bold min-w-[4rem] text-center">
-                      {Math.round(randomnessLevel * 100)}%
-                    </span>
-                  </div>
-                  <p className="text-blue-200 text-sm">
-                    {randomnessLevel === 0
-                      ? "Deterministic (same result every time)"
-                      : randomnessLevel < 0.3
-                      ? "Low randomness (mostly fair)"
-                      : randomnessLevel < 0.7
-                      ? "Medium randomness (balanced)"
-                      : "High randomness (more variety)"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Generate Round Button */}
-          {players.length >= 4 && (
-            <div className="mt-8 text-center space-y-4">
-              <button
-                onClick={generateRound}
-                disabled={loading}
-                className="btn-modern btn-primary text-xl px-12 py-4 shadow-2xl hover:shadow-2xl"
-              >
-                {loading ? (
-                  <span className="flex items-center justify-center">
-                    <span className="animate-spin mr-3 text-2xl">⚡</span>
-                    Generating Round {currentRound + 1}...
-                  </span>
-                ) : (
-                  <span className="flex items-center justify-center">
-                    <span className="mr-3 text-2xl">🎯</span>
-                    Generate Round {currentRound + 1}
-                  </span>
-                )}
-              </button>
-              <div className="text-sm text-blue-200 max-w-2xl mx-auto space-y-2">
-                <div>
-                  💡 <strong>Tip:</strong> ใช้ปุ่ม "Finish & New"
-                  ในแต่ละสนามเพื่อจบเกมและสร้างเกมใหม่ทันที
-                  ระบบจะสุ่มผู้เล่นจากคนที่เพิ่งจบเกมและคนที่นั่งรอ
-                  เพื่อให้การหมุนเวียนยุติธรรม
-                </div>
-                <div>
-                  🎮 <strong>Reset Game:</strong> รีเซ็ตเฉพาะเกม/รอบการแข่งขัน
-                  แต่ยังคงผู้เล่นไว้
-                  เหมาะสำหรับเริ่มเกมใหม่โดยไม่ต้องเพิ่มผู้เล่นใหม่
-                </div>
-              </div>
-            </div>
-          )}
-
-          {players.length > 0 && players.length < 4 && (
-            <div className="mt-8 text-center p-6 bg-yellow-500/10 backdrop-blur-md rounded-2xl border border-yellow-500/30">
-              <div className="text-3xl mb-3">⚠️</div>
-              <div className="text-yellow-200 font-semibold text-lg mb-2">
-                Need at least 4 players to generate matches
-              </div>
-              <div className="text-yellow-300">
-                Currently have {players.length} player
-                {players.length !== 1 ? "s" : ""}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="glass-card p-2">
-          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-            <button
-              onClick={() => setActiveTab("players")}
-              className={`flex-1 py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                activeTab === "players"
-                  ? "bg-white/20 text-white shadow-lg"
-                  : "text-blue-200 hover:bg-white/10"
-              }`}
-            >
-              👥 Players
-            </button>
-            <button
-              onClick={() => setActiveTab("rounds")}
-              className={`flex-1 py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                activeTab === "rounds"
-                  ? "bg-white/20 text-white shadow-lg"
-                  : "text-blue-200 hover:bg-white/10"
-              }`}
-            >
-              🏆 Rounds
-            </button>
-            <button
-              onClick={() => setActiveTab("stats")}
-              className={`flex-1 py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                activeTab === "stats"
-                  ? "bg-white/20 text-white shadow-lg"
-                  : "text-blue-200 hover:bg-white/10"
-              }`}
-            >
-              📊 Stats
-            </button>
-          </div>
-        </div>
-
-        {/* Players Tab */}
-        {activeTab === "players" && (
-          <div className="glass-card p-6 animate-slide-up">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 space-y-4 lg:space-y-0">
-              <h2 className="text-2xl font-bold text-white flex items-center">
-                <span className="mr-3">👥</span>
-                Player Management
-              </h2>
-              <div className="text-3xl font-bold text-blue-300">
-                {players.length}
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-              <input
-                type="text"
-                value={newPlayerName}
-                onChange={(e) => setNewPlayerName(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && addPlayer()}
-                placeholder="Enter player name..."
-                className="input-modern flex-1"
-              />
-              <button onClick={addPlayer} className="btn-modern btn-success">
-                ➕ Add Player
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {players.map((player, index) => (
-                <div
-                  key={player.id}
-                  className="player-card-modern animate-fade-in"
-                  style={{ animationDelay: `${index * 100}ms` }}
+          
+          <div className="flex items-center gap-4">
+            <nav className="flex gap-1 bg-zinc-900 p-1 rounded-lg">
+              {(["players", "rounds", "ranking", "settings"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                    activeTab === tab
+                      ? "bg-zinc-800 text-white shadow-sm"
+                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                  }`}
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="font-bold text-lg text-white truncate flex-1 mr-3">
-                      {player.name}
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </nav>
+
+            {/* User Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg transition-all"
+              >
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-zinc-700 flex items-center justify-center text-sm font-medium">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    profile.display_name?.charAt(0).toUpperCase() || '?'
+                  )}
+                </div>
+                <span className="text-sm font-medium hidden sm:block">{profile.display_name}</span>
+                <span className="text-zinc-400">▼</span>
+              </button>
+
+              {showUserMenu && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setShowUserMenu(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-20">
+                    <div className="p-3 border-b border-zinc-800">
+                      <div className="font-medium">{profile.display_name}</div>
+                      <div className="text-xs text-zinc-400 mt-0.5">{profile.email}</div>
                     </div>
-                    <button
-                      onClick={() => removePlayer(player.id)}
-                      className="text-red-400 hover:text-red-200 text-xl font-bold hover:scale-110 transition-transform"
-                      title="Remove player"
+                    
+                    <Link
+                      href="/profile"
+                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-sm"
+                      onClick={() => setShowUserMenu(false)}
                     >
-                      ×
+                      <span>👤</span>
+                      <span>My Profile</span>
+                    </Link>
+
+                    {profile.role === 'admin' && (
+                      <Link
+                        href="/admin"
+                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-sm border-t border-zinc-800"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <span>⚡</span>
+                        <span className="text-purple-400 font-medium">Admin Dashboard</span>
+                      </Link>
+                    )}
+
+                    <button
+                      onClick={async () => {
+                        setShowUserMenu(false);
+                        await signOut();
+                        router.push('/login');
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-sm border-t border-zinc-800 text-red-400"
+                    >
+                      <span>🚪</span>
+                      <span>Sign Out</span>
                     </button>
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-blue-200">Games:</span>
-                      <span className="badge-modern badge-blue">
-                        {player.gamesPlayed}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-blue-200">Rest:</span>
-                      <span className="badge-modern badge-orange">
-                        {player.restRounds}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                </>
+              )}
             </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8 max-w-5xl">
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 flex justify-between items-center">
+            <span>{error}</span>
+            <button onClick={() => setError("")} className="hover:text-red-300">✕</button>
           </div>
         )}
 
-        {/* Rounds Tab */}
+        {/* PLAYERS TAB */}
+        {activeTab === "players" && (
+          <>
+            <PlayerRoster
+              players={players}
+              newPlayerName={newPlayerName}
+              setNewPlayerName={setNewPlayerName}
+              onAddPlayer={addPlayer}
+              onToggleActive={togglePlayerActive}
+              onRemovePlayer={removePlayer}
+              onOpenSearch={() => setShowSearchModal(true)}
+            />
+            
+            <PlayerSearchModal
+              isOpen={showSearchModal}
+              onClose={() => setShowSearchModal(false)}
+              onSelect={addPlayerFromUserProfile}
+              existingPlayerIds={players.map(p => p.id)}
+            />
+          </>
+        )}
+
+        {/* ROUNDS TAB */}
         {activeTab === "rounds" && (
-          <div className="space-y-6 animate-slide-up">
-            {/* Current/Latest Round */}
-            {rounds.length > 0 && (
-              <div className="glass-card p-6">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 space-y-2 lg:space-y-0">
-                  <h2 className="text-2xl font-bold text-white flex items-center">
-                    <span className="mr-3">🏆</span>
-                    Round {rounds[rounds.length - 1].roundNumber}
-                  </h2>
-                  <div className="badge-modern badge-purple">
-                    {rounds[rounds.length - 1].matches.length} Court
-                    {rounds[rounds.length - 1].matches.length !== 1 ? "s" : ""}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {rounds[rounds.length - 1].matches.map((match, index) => (
-                    <div
-                      key={index}
-                      className="match-card-modern animate-bounce-in"
-                      style={{ animationDelay: `${index * 200}ms` }}
-                    >
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-xl font-bold text-white">
-                          Court {match.court}
-                        </h3>
-                        <div className="flex flex-col items-end space-y-2">
-                          <button
-                            onClick={() =>
-                              finishCourtAndGenerateNew(match.court)
-                            }
-                            disabled={finishingCourt === match.court}
-                            className="btn-modern btn-success text-sm"
-                          >
-                            {finishingCourt === match.court ? (
-                              <span className="flex items-center">
-                                <span className="animate-spin mr-2">⚡</span>
-                                Finishing...
-                              </span>
-                            ) : (
-                              <span className="flex items-center">
-                                <span className="mr-2">✅</span>
-                                Finish & New
-                              </span>
-                            )}
-                          </button>
-                          <div className="text-xs text-blue-200 text-right max-w-[200px]">
-                            สุ่มจากผู้เล่นที่จบเกม + คนที่นั่งรอ
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="team-section team-blue">
-                          <div className="team-header">Team 1</div>
-                          <div className="team-players">
-                            <div className="player-name">
-                              {match.team1[0].name}
-                            </div>
-                            <div className="player-name">
-                              {match.team1[1].name}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="vs-section">
-                          <div className="vs-text">VS</div>
-                        </div>
-
-                        <div className="team-section team-green">
-                          <div className="team-header">Team 2</div>
-                          <div className="team-players">
-                            <div className="player-name">
-                              {match.team2[0].name}
-                            </div>
-                            <div className="player-name">
-                              {match.team2[1].name}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {rounds[rounds.length - 1].playersSittingOut.length > 0 && (
-                  <div className="mt-6 p-6 bg-yellow-500/10 backdrop-blur-md rounded-2xl border border-yellow-500/30">
-                    <h3 className="font-bold text-lg mb-4 text-yellow-200">
-                      🪑 Sitting Out This Round:
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {rounds[rounds.length - 1].playersSittingOut.map(
-                        (player) => (
-                          <span
-                            key={player.id}
-                            className="badge-modern badge-yellow"
-                          >
-                            {player.name}
-                          </span>
-                        )
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Round History */}
-            {rounds.length > 1 && (
-              <div className="glass-card p-6">
-                <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
-                  <span className="mr-3">📜</span>
-                  Round History
-                </h2>
-                <div className="space-y-4">
-                  {rounds
-                    .slice(0, -1)
-                    .reverse()
-                    .map((round, index) => (
-                      <details key={round.roundNumber} className="group">
-                        <summary className="cursor-pointer font-semibold text-lg hover:text-blue-300 p-4 bg-white/5 backdrop-blur-md rounded-xl hover:bg-white/10 transition-all duration-300 flex items-center">
-                          <span className="mr-3">📋</span>
-                          Round {round.roundNumber} ({round.matches.length}{" "}
-                          match{round.matches.length !== 1 ? "es" : ""})
-                        </summary>
-                        <div className="mt-4 ml-6 space-y-3">
-                          {round.matches.map((match, matchIndex) => (
-                            <div
-                              key={matchIndex}
-                              className="bg-white/5 backdrop-blur-md p-4 rounded-lg border border-white/10"
-                            >
-                              <div className="font-semibold text-blue-200 mb-2">
-                                Court {match.court}: {match.team1[0].name} &{" "}
-                                {match.team1[1].name} vs {match.team2[0].name} &{" "}
-                                {match.team2[1].name}
-                              </div>
-                            </div>
-                          ))}
-                          {round.playersSittingOut.length > 0 && (
-                            <div className="text-sm text-blue-200 bg-white/5 p-3 rounded-lg">
-                              <strong>Sitting out:</strong>{" "}
-                              {round.playersSittingOut
-                                .map((p) => p.name)
-                                .join(", ")}
-                            </div>
-                          )}
-                        </div>
-                      </details>
-                    ))}
-                </div>
-              </div>
-            )}
-
-            {rounds.length === 0 && (
-              <div className="glass-card p-12 text-center">
-                <div className="text-6xl mb-6">🏸</div>
-                <h3 className="text-2xl font-bold text-white mb-4">
-                  No Rounds Yet
-                </h3>
-                <p className="text-blue-200 mb-8">
-                  Generate your first round to see matches here!
-                </p>
-                {players.length >= 4 && (
-                  <button
-                    onClick={generateRound}
-                    disabled={loading}
-                    className="btn-modern btn-primary text-xl px-12 py-4"
-                  >
-                    {loading ? (
-                      <span className="flex items-center">
-                        <span className="animate-spin mr-3">⚡</span>
-                        Generating Round {currentRound + 1}...
-                      </span>
-                    ) : (
-                      <span className="flex items-center">
-                        <span className="mr-3">🎯</span>
-                        Generate Round {currentRound + 1}
-                      </span>
-                    )}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <MatchList
+            rounds={rounds}
+            currentRound={currentRound}
+            activePlayersCount={activePlayersCount}
+            loading={loading}
+            sendingNotify={sendingNotify}
+            onGenerateRound={generateRound}
+            onSendNotify={sendLineNotification}
+            onFinishMatch={openFinishModal}
+          />
         )}
 
-        {/* Stats Tab */}
-        {activeTab === "stats" && (
-          <div className="glass-card p-6 animate-slide-up">
-            <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
-              <span className="mr-3">📊</span>
-              Statistics
-            </h2>
-
-            {players.length > 0 ? (
-              <div className="space-y-6">
-                {/* Summary Stats */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  {(() => {
-                    const stats = getPlayerStats();
-                    return (
-                      <>
-                        <div className="stats-card-modern text-center">
-                          <div className="text-3xl font-bold text-blue-300 mb-2">
-                            {stats.totalGames}
-                          </div>
-                          <div className="text-blue-200 text-sm">
-                            Total Games
-                          </div>
-                        </div>
-                        <div className="stats-card-modern text-center">
-                          <div className="text-3xl font-bold text-green-300 mb-2">
-                            {stats.avgGames}
-                          </div>
-                          <div className="text-green-200 text-sm">
-                            Avg Games/Player
-                          </div>
-                        </div>
-                        <div className="stats-card-modern text-center">
-                          <div className="text-3xl font-bold text-purple-300 mb-2">
-                            {stats.maxGames}
-                          </div>
-                          <div className="text-purple-200 text-sm">
-                            Most Games
-                          </div>
-                        </div>
-                        <div className="stats-card-modern text-center">
-                          <div className="text-3xl font-bold text-orange-300 mb-2">
-                            {stats.minGames}
-                          </div>
-                          <div className="text-orange-200 text-sm">
-                            Least Games
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* Player Stats Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full bg-white/5 backdrop-blur-md rounded-xl overflow-hidden">
-                    <thead className="bg-gradient-to-r from-blue-500/20 to-purple-500/20">
-                      <tr>
-                        <th className="px-6 py-4 text-left font-semibold text-white">
-                          Player
-                        </th>
-                        <th className="px-6 py-4 text-center font-semibold text-white">
-                          Games
-                        </th>
-                        <th className="px-6 py-4 text-center font-semibold text-white">
-                          Rest
-                        </th>
-                        <th className="px-6 py-4 text-center font-semibold text-white">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {players.map((player, index) => (
-                        <tr
-                          key={player.id}
-                          className={
-                            index % 2 === 0 ? "bg-white/5" : "bg-white/10"
-                          }
-                        >
-                          <td className="px-6 py-4 font-semibold text-white max-w-[200px]">
-                            <div className="truncate" title={player.name}>
-                              {player.name}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="badge-modern badge-blue">
-                              {player.gamesPlayed}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="badge-modern badge-orange">
-                              {player.restRounds}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            {player.restRounds > 0 ? (
-                              <span className="badge-modern badge-yellow">
-                                Resting
-                              </span>
-                            ) : (
-                              <span className="badge-modern badge-green">
-                                Active
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <div className="text-6xl mb-6">📊</div>
-                <h3 className="text-2xl font-bold text-white mb-4">
-                  No Players Yet
-                </h3>
-                <p className="text-blue-200 mb-8">
-                  Add some players to see statistics here!
-                </p>
-                <button
-                  onClick={() => setActiveTab("players")}
-                  className="btn-modern btn-primary text-xl px-12 py-4"
-                >
-                  <span className="mr-3">👥</span>
-                  Go to Players Tab
-                </button>
-              </div>
-            )}
-          </div>
+        {/* RANKING TAB */}
+        {activeTab === "ranking" && (
+          <Leaderboard players={players} />
         )}
 
-        {/* Floating Action Button */}
-        {players.length >= 4 && (
-          <button
-            onClick={generateRound}
-            disabled={loading}
-            className="floating-action-modern"
-            title="Generate Next Round"
-          >
-            {loading ? (
-              <span className="animate-spin text-2xl">⚡</span>
-            ) : (
-              <span className="text-2xl">🎯</span>
-            )}
-            <div className="absolute -top-2 -right-2 bg-red-500 text-white text-sm rounded-full w-6 h-6 flex items-center justify-center font-bold">
-              {currentRound + 1}
-            </div>
-          </button>
+        {/* SETTINGS TAB */}
+        {activeTab === "settings" && (
+          <SettingsPanel
+            courts={courts}
+            setCourts={setCourts}
+            randomnessLevel={randomnessLevel}
+            setRandomnessLevel={setRandomnessLevel}
+            lineToken={lineToken}
+            setLineToken={setLineToken}
+            onSave={updateConfig}
+            onResetGame={resetGameOnly}
+            onResetAll={resetAll}
+          />
         )}
-      </div>
+      </main>
+
+      {/* MATCH RESULT MODAL */}
+      <MatchResultModal
+        match={finishingMatch}
+        result={matchResult}
+        setResult={setMatchResult}
+        onClose={closeFinishModal}
+        onSave={saveMatchResult}
+      />
     </div>
   );
 }

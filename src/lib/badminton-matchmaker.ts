@@ -4,12 +4,20 @@ export interface Player {
   gamesPlayed: number;
   lastPlayedRound: number;
   restRounds: number; // Number of rounds since last played
+  elo: number;
+  wins: number;
+  losses: number;
+  active: boolean; // Whether the player is present today
 }
 
 export interface Match {
+  id: string; // Unique ID for the match
   court: number;
   team1: [Player, Player];
   team2: [Player, Player];
+  winner?: 1 | 2; // 1 for team1, 2 for team2
+  score?: string;
+  timestamp?: number;
 }
 
 export interface Round {
@@ -47,7 +55,7 @@ export class BadmintonMatchmaker {
     if (typeof window !== "undefined") {
       try {
         const data = this.getDataForStorage();
-        console.log("Saving matchmaker data to localStorage", data);
+        // console.log("Saving matchmaker data to localStorage", data);
         localStorage.setItem("badminton-matchmaker-data", JSON.stringify(data));
       } catch (error) {
         console.warn("Failed to save matchmaker data:", error);
@@ -61,7 +69,7 @@ export class BadmintonMatchmaker {
         const stored = localStorage.getItem("badminton-matchmaker-data");
         if (stored) {
           const data = JSON.parse(stored);
-          console.log("Loading matchmaker data from localStorage", data);
+          // console.log("Loading matchmaker data from localStorage", data);
           this.loadFromData(data);
         } else {
           console.log("No matchmaker data found in localStorage");
@@ -132,12 +140,12 @@ export class BadmintonMatchmaker {
 
     this.rounds = data.rounds || [];
 
-    // Ensure all players have history entries
-    this.ensurePlayerHistories();
+    // Ensure all players have history entries and new fields
+    this.ensurePlayerIntegrity();
   }
 
-  // Ensure all players have proper Set objects for their histories
-  private ensurePlayerHistories(): void {
+  // Ensure all players have proper Set objects for their histories and new fields
+  private ensurePlayerIntegrity(): void {
     this.players.forEach((player, playerId) => {
       if (!this.partnershipHistory[playerId]) {
         this.partnershipHistory[playerId] = new Set();
@@ -145,6 +153,11 @@ export class BadmintonMatchmaker {
       if (!this.oppositionHistory[playerId]) {
         this.oppositionHistory[playerId] = new Set();
       }
+      // Initialize new fields if missing
+      if (player.elo === undefined) player.elo = 1200;
+      if (player.wins === undefined) player.wins = 0;
+      if (player.losses === undefined) player.losses = 0;
+      if (player.active === undefined) player.active = true;
     });
   }
 
@@ -156,10 +169,18 @@ export class BadmintonMatchmaker {
     this.saveToStorage();
   }
 
-  addPlayer(name: string): string {
-    const id = `player_${Date.now()}_${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+  addPlayer(
+    name: string,
+    options?: {
+      id?: string;
+      elo?: number;
+      wins?: number;
+      losses?: number;
+    }
+  ): string {
+    const id =
+      options?.id ||
+      `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Calculate average games played by existing players for fairness
     const existingPlayers = Array.from(this.players.values());
@@ -177,6 +198,10 @@ export class BadmintonMatchmaker {
       gamesPlayed: avgGamesPlayed, // Set to average for fairness
       lastPlayedRound: -1,
       restRounds: 0,
+      elo: options?.elo ?? 1200,
+      wins: options?.wins ?? 0,
+      losses: options?.losses ?? 0,
+      active: true,
     };
 
     this.players.set(id, player);
@@ -185,6 +210,13 @@ export class BadmintonMatchmaker {
 
     this.saveToStorage();
     return id;
+  }
+
+  clearPlayers(): void {
+    this.players.clear();
+    this.partnershipHistory = {};
+    this.oppositionHistory = {};
+    this.saveToStorage();
   }
 
   removePlayer(playerId: string): boolean {
@@ -207,30 +239,46 @@ export class BadmintonMatchmaker {
     return false;
   }
 
+  togglePlayerActive(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    if (player) {
+      player.active = !player.active;
+      this.saveToStorage();
+      return true;
+    }
+    return false;
+  }
+
   getPlayers(): Player[] {
     return Array.from(this.players.values());
   }
 
+  getActivePlayers(): Player[] {
+    return Array.from(this.players.values()).filter((p) => p.active);
+  }
+
   private updateRestRounds(): void {
     this.players.forEach((player) => {
-      if (player.lastPlayedRound < this.currentRound - 1) {
-        player.restRounds = this.currentRound - player.lastPlayedRound - 1;
-      } else {
-        player.restRounds = 0;
+      if (player.active) {
+        if (player.lastPlayedRound < this.currentRound - 1) {
+          player.restRounds = this.currentRound - player.lastPlayedRound - 1;
+        } else {
+          player.restRounds = 0;
+        }
       }
     });
   }
 
   private selectPlayersForRound(): { playing: Player[]; sitting: Player[] } {
-    const allPlayers = Array.from(this.players.values());
+    const activePlayers = this.getActivePlayers();
 
     // Calculate how many players we can actually use based on available courts
-    const maxPossibleMatches = Math.floor(allPlayers.length / 4);
+    const maxPossibleMatches = Math.floor(activePlayers.length / 4);
     const actualMatches = Math.min(this.courts, maxPossibleMatches);
     const playersPerRound = actualMatches * 4;
 
-    if (allPlayers.length <= playersPerRound) {
-      return { playing: allPlayers, sitting: [] };
+    if (activePlayers.length <= playersPerRound) {
+      return { playing: activePlayers, sitting: [] };
     }
 
     // Sort players by priority with randomization factor:
@@ -238,7 +286,7 @@ export class BadmintonMatchmaker {
     // 2. More rest rounds (descending) - secondary factor
     // 3. Earlier last played round (ascending) - tertiary factor
     // 4. Random factor to break ties and add variety
-    const sortedPlayers = allPlayers.sort((a, b) => {
+    const sortedPlayers = activePlayers.sort((a, b) => {
       // Primary: games played
       if (a.gamesPlayed !== b.gamesPlayed) {
         return a.gamesPlayed - b.gamesPlayed;
@@ -330,8 +378,8 @@ export class BadmintonMatchmaker {
     let score = 0;
 
     // Penalty for repeated partnerships
-    if (this.hasPlayedTogether(team1[0], team1[1])) score += 10;
-    if (this.hasPlayedTogether(team2[0], team2[1])) score += 10;
+    if (this.hasPlayedTogether(team1[0], team1[1])) score += 100; // Increased penalty
+    if (this.hasPlayedTogether(team2[0], team2[1])) score += 100;
 
     // Penalty for repeated oppositions
     const oppositions = [
@@ -342,7 +390,7 @@ export class BadmintonMatchmaker {
     ];
 
     oppositions.forEach(([p1, p2]) => {
-      if (this.hasPlayedAgainst(p1, p2)) score += 5;
+      if (this.hasPlayedAgainst(p1, p2)) score += 20; // Increased penalty
     });
 
     // Penalty for game count imbalance
@@ -350,7 +398,13 @@ export class BadmintonMatchmaker {
     const gameCountVariance = this.calculateVariance(
       allPlayers.map((p) => p.gamesPlayed)
     );
-    score += gameCountVariance * 2;
+    score += gameCountVariance * 10;
+
+    // Penalty for ELO imbalance (fair matches)
+    const team1Elo = (team1[0].elo + team1[1].elo) / 2;
+    const team2Elo = (team2[0].elo + team2[1].elo) / 2;
+    const eloDiff = Math.abs(team1Elo - team2Elo);
+    score += eloDiff * 0.1; // Small weight for ELO balance
 
     return score;
   }
@@ -387,8 +441,8 @@ export class BadmintonMatchmaker {
     const numMatches = Math.min(this.courts, maxPossibleMatches);
 
     // Adjust number of attempts based on randomness level
-    const baseAttempts = 3;
-    const maxAttempts = 10;
+    const baseAttempts = 5;
+    const maxAttempts = 20;
     const attempts = Math.floor(
       baseAttempts + this.randomnessLevel * (maxAttempts - baseAttempts)
     );
@@ -431,7 +485,10 @@ export class BadmintonMatchmaker {
       // Shuffle combinations to add randomness
       this.shuffleArray(fourPlayerCombos);
 
-      for (const fourPlayers of fourPlayerCombos) {
+      // Limit the number of combinations we check to avoid performance issues with large groups
+      const combosToCheck = fourPlayerCombos.slice(0, 50);
+
+      for (const fourPlayers of combosToCheck) {
         // Try all possible team divisions (3 ways to divide 4 players into 2 teams of 2)
         const teamDivisions = [
           [
@@ -461,6 +518,7 @@ export class BadmintonMatchmaker {
           if (score < bestScore) {
             bestScore = score;
             bestMatch = {
+              id: `match_${Date.now()}_${court}`,
               court: court + 1,
               team1: team1 as [Player, Player],
               team2: team2 as [Player, Player],
@@ -561,7 +619,7 @@ export class BadmintonMatchmaker {
 
     if (playing.length < 4) {
       throw new Error(
-        "Not enough players to form a match. Need at least 4 players."
+        "Not enough active players to form a match. Need at least 4 players."
       );
     }
 
@@ -573,7 +631,8 @@ export class BadmintonMatchmaker {
     const additionalSitting = playing.slice(playersToUse.length);
 
     const matches = this.findBestMatches(playersToUse);
-    this.updatePlayerStats(matches);
+    // Player stats (gamesPlayed, lastPlayedRound, restRounds) are updated when matches are recorded.
+    // this.updatePlayerStats(matches); // This is now handled by recordMatchResult
 
     const round: Round = {
       roundNumber: this.currentRound + 1,
@@ -637,6 +696,9 @@ export class BadmintonMatchmaker {
       player.gamesPlayed = 0;
       player.lastPlayedRound = -1;
       player.restRounds = 0;
+      player.wins = 0;
+      player.losses = 0;
+      player.elo = 1200;
     });
 
     // Reset history
@@ -660,11 +722,14 @@ export class BadmintonMatchmaker {
       player.gamesPlayed = 0;
       player.lastPlayedRound = -1;
       player.restRounds = 0;
+      // Optional: Reset ELO/Wins/Losses too? Maybe keep them for long term stats?
+      // For now, let's keep ELO/Wins/Losses as "Season Stats" and only reset session stats
     });
 
     // Reset partnership and opposition history
     this.partnershipHistory = {};
     this.oppositionHistory = {};
+    this.ensurePlayerIntegrity();
 
     this.saveToStorage();
   }
@@ -677,24 +742,29 @@ export class BadmintonMatchmaker {
     }
 
     const currentRound = this.rounds[this.rounds.length - 1];
-    const courtMatch = currentRound.matches.find(
+    const courtMatchIndex = currentRound.matches.findIndex(
       (match) => match.court === courtNumber
     );
 
-    if (!courtMatch) {
+    if (courtMatchIndex === -1) {
       throw new Error(`Court ${courtNumber} not found in current round`);
+    }
+
+    const courtMatch = currentRound.matches[courtMatchIndex];
+
+    // If the match hasn't been recorded, we can't finish it this way.
+    // The assumption is that `recordMatchResult` would be called first.
+    if (!courtMatch.winner) {
+      throw new Error(
+        `Match on court ${courtNumber} has not been recorded yet. Please record the result first.`
+      );
     }
 
     // Get players who just finished the match (they should be available for new match)
     const justFinishedPlayers = [...courtMatch.team1, ...courtMatch.team2];
 
-    // Update player stats for the finished match
-    this.updatePlayerStats([courtMatch]);
-
     // Remove the finished match from current round
-    currentRound.matches = currentRound.matches.filter(
-      (match) => match.court !== courtNumber
-    );
+    currentRound.matches.splice(courtMatchIndex, 1);
 
     // If no more matches in current round, generate next round
     if (currentRound.matches.length === 0) {
@@ -722,11 +792,11 @@ export class BadmintonMatchmaker {
   private getAvailablePlayersForNewMatch(
     justFinishedPlayers?: Player[]
   ): Player[] {
-    const allPlayers = Array.from(this.players.values());
+    const activePlayers = this.getActivePlayers();
 
     // Get players who are not currently playing in the latest round
     if (this.rounds.length === 0) {
-      return allPlayers;
+      return activePlayers;
     }
 
     const currentRound = this.rounds[this.rounds.length - 1];
@@ -738,7 +808,7 @@ export class BadmintonMatchmaker {
     );
 
     // Get players who are not currently playing
-    const notCurrentlyPlaying = allPlayers.filter(
+    const notCurrentlyPlaying = activePlayers.filter(
       (player) => !currentlyPlayingIds.has(player.id)
     );
 
@@ -798,15 +868,15 @@ export class BadmintonMatchmaker {
 
         // Check if teams are valid (no duplicate players)
         const allPlayers = [...team1, ...team2];
-        const uniquePlayers = new Set(allPlayers.map((p) => p.id));
-        if (uniquePlayers.size !== 4) continue;
+        const playerIds = new Set(allPlayers.map((p) => p.id));
+        if (playerIds.size !== 4) continue;
 
-        // Calculate matchup score
         const score = this.calculateMatchupScore(team1, team2);
 
         if (score > bestScore) {
           bestScore = score;
           bestMatch = {
+            id: `match_${Date.now()}_${courtNumber}`,
             court: courtNumber,
             team1,
             team2,
@@ -816,5 +886,64 @@ export class BadmintonMatchmaker {
     }
 
     return bestMatch;
+  }
+
+  recordMatchResult(matchId: string, winner: 1 | 2, score?: string): void {
+    // Find match in history
+    for (const round of this.rounds) {
+      const match = round.matches.find((m) => m.id === matchId);
+      if (match) {
+        match.winner = winner;
+        match.score = score;
+        match.timestamp = Date.now(); // Record when the result was set
+        this.updatePlayerStats([match]); // Update gamesPlayed, lastPlayedRound, restRounds, partnership, opposition
+        this.updateElo(match); // Update ELO, wins, losses
+        this.saveToStorage();
+        return;
+      }
+    }
+    throw new Error(`Match with ID ${matchId} not found.`);
+  }
+
+  private updateElo(match: Match): void {
+    if (!match.winner) return;
+
+    const team1 = match.team1;
+    const team2 = match.team2;
+
+    const team1AvgElo = (team1[0].elo + team1[1].elo) / 2;
+    const team2AvgElo = (team2[0].elo + team2[1].elo) / 2;
+
+    const kFactor = 32; // Standard K-factor
+
+    const expectedScore1 =
+      1 / (1 + Math.pow(10, (team2AvgElo - team1AvgElo) / 400));
+    const expectedScore2 =
+      1 / (1 + Math.pow(10, (team1AvgElo - team2AvgElo) / 400));
+
+    const actualScore1 = match.winner === 1 ? 1 : 0;
+    const actualScore2 = match.winner === 2 ? 1 : 0;
+
+    const eloChange1 = Math.round(kFactor * (actualScore1 - expectedScore1));
+    const eloChange2 = Math.round(kFactor * (actualScore2 - expectedScore2));
+
+    // Update players
+    team1.forEach((p) => {
+      const player = this.players.get(p.id);
+      if (player) {
+        player.elo += eloChange1;
+        if (match.winner === 1) player.wins++;
+        else player.losses++;
+      }
+    });
+
+    team2.forEach((p) => {
+      const player = this.players.get(p.id);
+      if (player) {
+        player.elo += eloChange2;
+        if (match.winner === 2) player.wins++;
+        else player.losses++;
+      }
+    });
   }
 }
