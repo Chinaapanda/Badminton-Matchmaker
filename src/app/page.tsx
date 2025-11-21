@@ -5,10 +5,22 @@ import PlayerSearchModal from "@/components/players/PlayerSearchModal";
 import Leaderboard from "@/components/ranking/Leaderboard";
 import MatchList from "@/components/rounds/MatchList";
 import MatchResultModal from "@/components/rounds/MatchResultModal";
+import SessionCreateModal from "@/components/sessions/SessionCreateModal";
+import SessionSelector from "@/components/sessions/SessionSelector";
 import SettingsPanel from "@/components/settings/SettingsPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { Profile } from "@/lib/api/auth";
 import { addPlayer as addPlayerDB, addPlayerFromProfile as addPlayerFromProfileDB, deletePlayer as deletePlayerDB, fetchPlayers, updatePlayerStats } from "@/lib/api/players";
+import {
+  addPlayerToSession,
+  createSession,
+  getSession,
+  getSessionPlayers,
+  getUserSessions,
+  updateSessionState,
+  type Session,
+  type SessionWithDetails
+} from "@/lib/api/sessions";
 import {
   getMatchmaker,
   resetGame,
@@ -39,6 +51,12 @@ export default function Home() {
   const [matchResult, setMatchResult] = useState<{ winner: 1 | 2 | null; score: string }>({ winner: null, score: "" });
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  
+  // Session management state
+  const [sessionMode, setSessionMode] = useState<'localStorage' | 'database'>('localStorage');
+  const [currentSession, setCurrentSession] = useState<Session | null>(null);
+  const [sessions, setSessions] = useState<SessionWithDetails[]>([]);
+  const [showSessionModal, setShowSessionModal] = useState(false);
 
   useEffect(() => {
     // Load saved configuration and data from localStorage
@@ -56,6 +74,22 @@ export default function Home() {
 
     refreshData();
   }, []);
+
+  // Load user sessions when authenticated
+  useEffect(() => {
+    if (user && !authLoading) {
+      loadUserSessions();
+    }
+  }, [user, authLoading]);
+
+  const loadUserSessions = async () => {
+    try {
+      const userSessions = await getUserSessions(false);
+      setSessions(userSessions);
+    } catch (err) {
+      console.error("Failed to load sessions:", err);
+    }
+  };
 
   const loadPlayersFromSupabase = async () => {
     try {
@@ -221,6 +255,105 @@ export default function Home() {
     }
   };
 
+  // Session management handlers
+  const handleCreateSession = async (name: string, courtCount: number, randomness: number) => {
+    try {
+      setLoading(true);
+      const newSession = await createSession(name, courtCount, randomness);
+      await loadUserSessions();
+      switchToSession(newSession.id);
+      setShowSessionModal(false);
+    } catch (err) {
+      console.error("Failed to create session:", err);
+      setError("Failed to create session");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const switchToSession = async (sessionId: string | null) => {
+    if (!sessionId) {
+      // Switch to localStorage mode
+      setSessionMode('localStorage');
+      setCurrentSession(null);
+      await loadPlayersFromSupabase();
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setSessionMode('database');
+      const session = await getSession(sessionId);
+      setCurrentSession(session);
+      
+      // Load session state
+      const matchmaker = getMatchmaker();
+      if (session.state && typeof session.state === 'object' && Object.keys(session.state).length > 0) {
+        matchmaker.loadFromServerData({
+          ...(session.state as any),
+          currentRound: session.current_round,
+          courts: session.court_count,
+          randomnessLevel: session.randomness_level,
+        });
+      }
+      
+      // Load players from session
+      const sessionPlayers = await getSessionPlayers(sessionId);
+      matchmaker.clearPlayers();
+      sessionPlayers.forEach((p) => {
+        matchmaker.addPlayer(p.name, {
+          id: p.id,
+          elo: p.elo || 1200,
+          wins: p.wins || 0,
+          losses: p.losses || 0,
+        });
+      });
+      
+      refreshData();
+    } catch (err) {
+      console.error("Failed to switch session:", err);
+      setError("Failed to load session");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportFromLocalStorage = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      const matchmaker = getMatchmaker();
+      const localData = matchmaker.getDataForStorage();
+      
+      const newSession = await createSession(
+        `Imported - ${new Date().toLocaleString()}`,
+        courts,
+        randomnessLevel
+      );
+      
+      await updateSessionState(newSession.id, localData, localData.currentRound);
+      
+      // Import players
+      for (const player of players) {
+        await addPlayerToSession(newSession.id, player.name, {
+          elo: player.elo,
+          wins: player.wins,
+          losses: player.losses,
+        });
+      }
+      
+      await loadUserSessions();
+      await switchToSession(newSession.id);
+      setShowSessionModal(false);
+    } catch (err) {
+      console.error("Failed to import:", err);
+      setError("Failed to import data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const openFinishModal = (match: Match) => {
     setFinishingMatch(match);
     setMatchResult({ winner: null, score: "" });
@@ -352,6 +485,18 @@ export default function Home() {
             <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center font-bold text-zinc-950">B</div>
             <h1 className="text-lg font-bold tracking-tight">Badminton Matchmaker</h1>
           </div>
+          
+          {/* Session Selector */}
+          {user && (
+            <div className="flex-1 max-w-md mx-4">
+              <SessionSelector
+                currentSessionId={currentSession?.id || null}
+                onSessionChange={switchToSession}
+                onCreateNew={() => setShowSessionModal(true)}
+                sessions={sessions}
+              />
+            </div>
+          )}
           
           <div className="flex items-center gap-4">
             <nav className="flex gap-1 bg-zinc-900 p-1 rounded-lg">
@@ -510,6 +655,23 @@ export default function Home() {
         setResult={setMatchResult}
         onClose={closeFinishModal}
         onSave={saveMatchResult}
+      />
+
+      {/* PLAYER SEARCH MODAL */}
+      <PlayerSearchModal
+        isOpen={showSearchModal}
+        onClose={() => setShowSearchModal(false)}
+        onSelect={addPlayerFromUserProfile}
+        existingPlayerIds={players.map((p) => p.id)}
+      />
+
+      {/* SESSION CREATE MODAL */}
+      <SessionCreateModal
+        isOpen={showSessionModal}
+        onClose={() => setShowSessionModal(false)}
+        onCreate={handleCreateSession}
+        onImportFromLocalStorage={handleImportFromLocalStorage}
+        hasLocalStorageData={players.length > 0 || rounds.length > 0}
       />
     </div>
   );
