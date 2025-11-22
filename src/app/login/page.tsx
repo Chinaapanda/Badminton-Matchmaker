@@ -3,6 +3,7 @@
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -24,7 +25,9 @@ export default function Login() {
           password,
         });
         if (error) throw error;
-        alert('Check your email for the confirmation link!');
+        toast.success('Check your email for the confirmation link!', {
+          duration: 5000,
+        });
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,

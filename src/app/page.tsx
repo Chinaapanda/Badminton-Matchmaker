@@ -8,6 +8,7 @@ import MatchResultModal from "@/components/rounds/MatchResultModal";
 import SessionCreateModal from "@/components/sessions/SessionCreateModal";
 import SessionSelector from "@/components/sessions/SessionSelector";
 import SettingsPanel from "@/components/settings/SettingsPanel";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { Profile } from "@/lib/api/auth";
 import { addPlayer as addPlayerDB, addPlayerFromProfile as addPlayerFromProfileDB, deletePlayer as deletePlayerDB, fetchPlayers, updatePlayerStats } from "@/lib/api/players";
@@ -31,11 +32,13 @@ import { Match, Player, Round } from "@/types";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 
 export default function Home() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
+  const { confirm, ConfirmDialogComponent } = useConfirm();
   const [players, setPlayers] = useState<Player[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [currentRound, setCurrentRound] = useState(0);
@@ -150,7 +153,12 @@ export default function Home() {
 
 
   const removePlayer = async (playerId: string) => {
-    if (!confirm("Remove this player?")) return;
+    const confirmed = await confirm(
+      "Remove Player",
+      "Are you sure you want to remove this player?",
+      "danger"
+    );
+    if (!confirmed) return;
     try {
       // Delete from Supabase first
       await deletePlayerDB(playerId);
@@ -223,14 +231,19 @@ export default function Home() {
       updateMatchmakerConfig(courts, randomnessLevel);
       localStorage.setItem("badminton-line-token", lineToken);
       refreshData();
-      alert("Settings saved!");
+      toast.success("Settings saved successfully!");
     } catch (err) {
       setError("Failed to update configuration");
     }
   };
 
-  const resetAll = () => {
-    if (!confirm("Reset EVERYTHING? This cannot be undone.")) return;
+  const resetAll = async () => {
+    const confirmed = await confirm(
+      "Reset Everything",
+      "This will reset ALL data including players, matches, and settings. This action cannot be undone.",
+      "danger"
+    );
+    if (!confirmed) return;
     try {
       localStorage.removeItem("badminton-matchmaker-data");
       localStorage.removeItem("badminton-matchmaker-config");
@@ -244,8 +257,13 @@ export default function Home() {
     }
   };
 
-  const resetGameOnly = () => {
-    if (!confirm("Reset current game session? Players will remain.")) return;
+  const resetGameOnly = async () => {
+    const confirmed = await confirm(
+      "Reset Game Session",
+      "This will reset the current game session. Players will remain in the roster.",
+      "danger"
+    );
+    if (!confirmed) return;
     try {
       resetGame();
       refreshData();
@@ -365,7 +383,7 @@ export default function Home() {
 
   const saveMatchResult = async () => {
     if (!finishingMatch || !matchResult.winner) {
-      alert("Please select a winner");
+      toast.error("Please select a winner");
       return;
     }
     try {
@@ -399,7 +417,7 @@ export default function Home() {
 
   const sendLineNotification = async () => {
     if (!lineToken) {
-      alert("Please set a Line Notify Token in Settings first.");
+      toast.error("Please set a Line Notify Token in Settings first.");
       return;
     }
     if (rounds.length === 0) return;
@@ -426,7 +444,7 @@ export default function Home() {
       
       const data = await res.json();
       if (data.success) {
-        alert("Notification sent!");
+        toast.success("Notification sent successfully!");
       } else {
         throw new Error(data.error);
       }
@@ -673,6 +691,9 @@ export default function Home() {
         onImportFromLocalStorage={handleImportFromLocalStorage}
         hasLocalStorageData={players.length > 0 || rounds.length > 0}
       />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialogComponent />
     </div>
   );
 }

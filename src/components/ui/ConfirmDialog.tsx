@@ -79,6 +79,7 @@ export function useConfirm() {
     message: string;
     variant?: "default" | "danger";
     onConfirm?: () => void;
+    onCancel?: () => void;
   }>({
     isOpen: false,
     title: "",
@@ -100,12 +101,18 @@ export function useConfirm() {
           setDialogState({ isOpen: false, title: "", message: "" });
           resolve(true);
         },
+        onCancel: () => {
+          setDialogState({ isOpen: false, title: "", message: "" });
+          resolve(false);
+        },
       });
     });
   };
 
   const handleCancel = () => {
-    setDialogState({ isOpen: false, title: "", message: "" });
+    if (dialogState.onCancel) {
+      dialogState.onCancel();
+    }
   };
 
   const ConfirmDialogComponent = () => (

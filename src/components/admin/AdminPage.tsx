@@ -1,5 +1,6 @@
 "use client";
 
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Profile } from '@/lib/api/auth';
 import { banUser, deleteUserProfile, fetchAllProfiles, unbanUser, updateUserElo } from '@/lib/api/profiles';
@@ -9,6 +10,7 @@ import { useEffect, useState } from 'react';
 export default function AdminPage() {
   const { profile: currentProfile } = useAuth();
   const router = useRouter();
+  const { confirm, ConfirmDialogComponent } = useConfirm();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,9 +55,12 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (userId: string, userName: string) => {
-    if (!confirm(`Are you sure you want to delete user "${userName}"? This cannot be undone.`)) {
-      return;
-    }
+    const confirmed = await confirm(
+      "Delete User",
+      `Are you sure you want to delete user "${userName}"? This action cannot be undone.`,
+      "danger"
+    );
+    if (!confirmed) return;
 
     try {
       await deleteUserProfile(userId);
@@ -288,6 +293,9 @@ export default function AdminPage() {
           </div>
         </div>
       </main>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialogComponent />
     </div>
   );
 }
