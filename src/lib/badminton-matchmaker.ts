@@ -509,6 +509,14 @@ export class BadmintonMatchmaker {
         this.shuffleArray(teamDivisions);
 
         for (const [team1, team2] of teamDivisions) {
+          // Ensure all 4 players are unique (no duplicates)
+          const allPlayers = [...team1, ...team2];
+          const playerIds = new Set(allPlayers.map((p) => p.id));
+          if (playerIds.size !== 4) {
+            // Skip this division if there are duplicate players
+            continue;
+          }
+
           const score = this.calculateMatchupScoreWithRandomness(
             team1 as [Player, Player],
             team2 as [Player, Player],

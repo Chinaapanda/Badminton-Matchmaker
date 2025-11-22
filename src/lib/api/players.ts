@@ -80,6 +80,7 @@ export async function deletePlayer(playerId: string): Promise<void> {
 
 /**
  * Add a player from an existing profile
+ * If the profile is already linked to a player, returns the existing player
  */
 export async function addPlayerFromProfile(
   profileId: string, 
@@ -88,13 +89,27 @@ export async function addPlayerFromProfile(
   wins?: number,
   losses?: number
 ): Promise<PlayerDB> {
+  // First check if this profile already has a linked player
+  const { data: existingPlayer } = await supabase
+    .from('players')
+    .select('*')
+    .eq('profile_id', profileId)
+    .single();
+
+  if (existingPlayer) {
+    // Player already exists for this profile, return it
+    return existingPlayer;
+  }
+
+  // Create new player linked to the profile
   const { data, error } = await supabase
     .from('players')
     .insert({ 
       name,
       elo: elo || 1200,
       wins: wins || 0,
-      losses: losses || 0
+      losses: losses || 0,
+      profile_id: profileId
     })
     .select()
     .single();
@@ -106,3 +121,4 @@ export async function addPlayerFromProfile(
 
   return data;
 }
+
