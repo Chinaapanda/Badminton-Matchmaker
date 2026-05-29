@@ -31,7 +31,7 @@ import {
 import { Match, Player, Round } from "@/types";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 
@@ -61,40 +61,14 @@ export default function Home() {
   const [sessions, setSessions] = useState<SessionWithDetails[]>([]);
   const [showSessionModal, setShowSessionModal] = useState(false);
 
-  useEffect(() => {
-    // Load saved configuration and data from localStorage
+  const refreshData = useCallback(() => {
     const matchmaker = getMatchmaker();
-    const config = matchmaker.getConfiguration();
-    setCourts(config.courts || 1);
-    setRandomnessLevel(config.randomnessLevel || 0.5);
-    
-    // Load Line Token from localStorage manually as it's not in the core matchmaker config yet
-    const savedToken = localStorage.getItem("badminton-line-token");
-    if (savedToken) setLineToken(savedToken);
-
-    // Load players from Supabase
-    loadPlayersFromSupabase();
-
-    refreshData();
+    setPlayers(matchmaker.getPlayers());
+    setRounds(matchmaker.getRounds());
+    setCurrentRound(matchmaker.getCurrentRound());
   }, []);
 
-  // Load user sessions when authenticated
-  useEffect(() => {
-    if (user && !authLoading) {
-      loadUserSessions();
-    }
-  }, [user, authLoading]);
-
-  const loadUserSessions = async () => {
-    try {
-      const userSessions = await getUserSessions(false);
-      setSessions(userSessions);
-    } catch (err) {
-      console.error("Failed to load sessions:", err);
-    }
-  };
-
-  const loadPlayersFromSupabase = async () => {
+  const loadPlayersFromSupabase = useCallback(async () => {
     try {
       const playersFromDB = await fetchPlayers();
       
@@ -112,21 +86,45 @@ export default function Home() {
         });
       });
 
-
       refreshData();
     } catch (err) {
       console.error('Failed to load players from Supabase:', err);
       setError('Failed to load players from database');
     }
-  };
+  }, [refreshData]);
 
+  const loadUserSessions = useCallback(async () => {
+    try {
+      const userSessions = await getUserSessions(false);
+      setSessions(userSessions);
+    } catch (err) {
+      console.error("Failed to load sessions:", err);
+    }
+  }, []);
 
-  const refreshData = () => {
+  useEffect(() => {
+    // Load saved configuration and data from localStorage
     const matchmaker = getMatchmaker();
-    setPlayers(matchmaker.getPlayers());
-    setRounds(matchmaker.getRounds());
-    setCurrentRound(matchmaker.getCurrentRound());
-  };
+    const config = matchmaker.getConfiguration();
+    setCourts(config.courts || 1);
+    setRandomnessLevel(config.randomnessLevel || 0.5);
+    
+    // Load Line Token from localStorage manually as it's not in the core matchmaker config yet
+    const savedToken = localStorage.getItem("badminton-line-token");
+    if (savedToken) setLineToken(savedToken);
+
+    // Load players from Supabase
+    loadPlayersFromSupabase();
+
+    refreshData();
+  }, [loadPlayersFromSupabase, refreshData]);
+
+  // Load user sessions when authenticated
+  useEffect(() => {
+    if (user && !authLoading) {
+      loadUserSessions();
+    }
+  }, [user, authLoading, loadUserSessions]);
 
   const addPlayer = async () => {
     if (!newPlayerName.trim()) return;

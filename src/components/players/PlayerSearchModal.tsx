@@ -1,6 +1,6 @@
 import { Profile } from "@/lib/api/auth";
 import { fetchAllProfiles, searchProfiles } from "@/lib/api/profiles";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 interface PlayerSearchModalProps {
   isOpen: boolean;
@@ -20,21 +20,7 @@ export default function PlayerSearchModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (isOpen) {
-      loadProfiles();
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (searchQuery.trim()) {
-      handleSearch();
-    } else {
-      loadProfiles();
-    }
-  }, [searchQuery]);
-
-  const loadProfiles = async () => {
+  const loadProfiles = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -46,9 +32,9 @@ export default function PlayerSearchModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return;
     setLoading(true);
     setError("");
@@ -61,7 +47,21 @@ export default function PlayerSearchModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadProfiles();
+    }
+  }, [isOpen, loadProfiles]);
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      handleSearch();
+    } else {
+      loadProfiles();
+    }
+  }, [searchQuery, handleSearch, loadProfiles]);
 
   const handleSelect = (profile: Profile) => {
     onSelect(profile);
